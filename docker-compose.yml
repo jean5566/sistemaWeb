@@ -1,0 +1,47 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: pos-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: pos_ferreteria
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    volumes:
+      - ./database.sql:/docker-entrypoint-initdb.d/database.sql
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  app:
+    build: .
+    container_name: pos-app
+    restart: always
+    ports:
+      - "8000:80"
+    volumes:
+      - ./public:/var/www/html
+      - ./.env:/var/www/.env
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_NAME=pos_ferreteria
+      - DB_USER=root
+      - DB_PASS=
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: pos-pma
+    restart: always
+    ports:
+      - "8081:80"
+    environment:
+      - PMA_ARBITRARY=1
+      - PMA_HOST=db
+      - PMA_USER=root
+      - PMA_PASSWORD=
+    depends_on:
+      - db
+
+volumes:
+  db_data:
