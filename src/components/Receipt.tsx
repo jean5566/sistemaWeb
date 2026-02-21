@@ -8,6 +8,7 @@ interface ReceiptProps {
         address: string;
         taxId: string;
         phone: string;
+        logo?: string;
     };
     saleId: string | number;
     date: string;
@@ -25,6 +26,9 @@ interface ReceiptProps {
     total: number;
     currency: string;
     docType?: string;
+    // SRI Props
+    sriAccessKey?: string;
+    sriAuthDate?: string;
 }
 
 export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
@@ -34,10 +38,11 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
     customer,
     items,
     subtotal,
-    tax,
     total,
     currency,
-    docType = 'ticket' // 'ticket' or 'factura'
+    docType = 'ticket', // 'ticket' or 'factura'
+    sriAccessKey,
+    sriAuthDate
 }, ref) => {
 
     const isTicket = docType === 'ticket';
@@ -130,6 +135,14 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
             margin-top: 15px;
             font-size: 10px;
         }
+        .sri-info {
+            margin-top: 10px;
+            font-size: 9px;
+            word-break: break-all;
+            text-align: center;
+            border-top: 1px dashed #000;
+            padding-top: 5px;
+        }
     `;
 
     return (
@@ -137,15 +150,21 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
             <style>{styles}</style>
             <div id="printable-receipt" ref={ref} className="receipt-preview">
                 <div className="receipt-header">
+                    {company.logo && (
+                        <div style={{ marginBottom: '10px' }}>
+                            <img src={company.logo} alt="Logo" style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto' }} />
+                        </div>
+                    )}
                     <h2>{company.name || 'Empresa'}</h2>
                     <div>{company.address}</div>
                     <div>RUC: {company.taxId}</div>
                     <div>Telf: {company.phone}</div>
                     <div style={{ marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>{docTitle}</div>
+                    <div style={{ fontSize: '10px', marginTop: '4px' }}>Contribuyente Negocio Popular - Régimen RIMPE</div>
                 </div>
 
                 <div className="receipt-info">
-                    <div><strong>Series: {isTicket ? 'NV01' : 'F001'} - {saleId}</strong></div>
+                    <div><strong>No: {saleId}</strong></div>
                     <div>Fecha: {date}</div>
 
                     <div style={{ borderTop: '1px dashed #000', margin: '5px 0', paddingTop: '5px' }}>
@@ -190,8 +209,8 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
                                 <span>{currency || '$'}{subtotal.toFixed(2)}</span>
                             </div>
                             <div className="row">
-                                <span>Impuestos:</span>
-                                <span>{currency || '$'}{tax.toFixed(2)}</span>
+                                <span>Impuestos (0%):</span>
+                                <span>{currency || '$'}0.00</span>
                             </div>
                         </>
                     )}
@@ -201,14 +220,18 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
                     </div>
                 </div>
 
+                {sriAccessKey && (
+                    <div className="sri-info">
+                        <div style={{ fontWeight: 'bold' }}>AUTORIZACIÓN SRI</div>
+                        <div>Clave de Acceso:</div>
+                        <div>{sriAccessKey}</div>
+                        {sriAuthDate && <div>Fecha: {sriAuthDate}</div>}
+                    </div>
+                )}
+
                 <div className="receipt-message">
-                    {isTicket && (
-                        <p style={{ fontWeight: 'bold', margin: '10px 0', textTransform: 'uppercase' }}>
-                            * NO VÁLIDO PARA CRÉDITO FISCAL *
-                        </p>
-                    )}
                     <p>¡Gracias por su preferencia!</p>
-                    <p>Conserve este documento.</p>
+                    <p>Documento Electrónico Generado</p>
                 </div>
             </div>
         </>

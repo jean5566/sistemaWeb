@@ -1,4 +1,4 @@
--- Database Schema for POS System
+-- Database Schema for POS System with SRI Integration
 -- Run this script in your MySQL interface
 
 SET FOREIGN_KEY_CHECKS = 0;
@@ -12,6 +12,11 @@ DROP TABLE IF EXISTS company_settings;
 DROP TABLE IF EXISTS users;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE IF NOT EXISTS categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS products (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,6 +47,13 @@ CREATE TABLE IF NOT EXISTS sales (
     total DECIMAL(10, 2) NOT NULL,
     payment_method VARCHAR(50),
     document_type VARCHAR(50),
+    -- SRI Fields
+    sri_access_key VARCHAR(49) NULL,
+    sri_status VARCHAR(20) DEFAULT 'PENDING',
+    sri_auth_date DATETIME NULL,
+    sri_xml LONGTEXT NULL,
+    sri_message TEXT NULL,
+    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -56,11 +68,6 @@ CREATE TABLE IF NOT EXISTS sale_items (
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS categories (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL UNIQUE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS company_settings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255),
@@ -70,6 +77,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     email VARCHAR(255),
     currency VARCHAR(10) DEFAULT '$',
     tax_rate DECIMAL(5, 2) DEFAULT 0,
+    logo LONGTEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -85,9 +93,15 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Rate limiting for login endpoint
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    ip         VARCHAR(45) NOT NULL,
+    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ip_time (ip, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default company settings if not exists
-INSERT INTO company_settings (name, address, tax_rate) 
-SELECT 'Pernos y Cauchos JM', 'Dirección Local', 0 
+INSERT INTO company_settings (name, address, tax_rate)
+SELECT 'Pernos y Cauchos JM', 'Dirección Local', 0
 WHERE NOT EXISTS (SELECT * FROM company_settings);
-
-

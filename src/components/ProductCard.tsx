@@ -12,7 +12,7 @@ export function ProductCard({ product, onAdd, currency = '$', isDisabled = false
         <div
             className={`rounded-[28px] shadow-sm transition-all duration-300 overflow-hidden flex flex-row items-center border-[1.5px] group h-28 select-none relative ${isDisabled
                 ? 'bg-gray-50/50 border-gray-100 opacity-60 cursor-not-allowed'
-                : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 cursor-pointer hover:border-primary/50 hover:shadow-xl hover:shadow-primary/10 hover:-translate-y-1 active:scale-[0.97]'
+                : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 cursor-pointer hover:shadow-xl hover:shadow-gray-200/50 hover:-translate-y-1 active:scale-[0.97]'
                 }`}
             onClick={() => !isDisabled && onAdd(product)}
         >

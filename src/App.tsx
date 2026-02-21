@@ -7,6 +7,7 @@ import { CartProvider } from './context/CartContext';
 import { CompanyProvider } from './context/CompanyContext';
 
 import { Layout } from './components/layout/Layout';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import POS from './pages/POS';
 import Dashboard from './pages/Dashboard';
@@ -19,17 +20,27 @@ import Settings from './pages/Settings';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  allowedRoles?: ('admin' | 'cashier')[];
 }
 
-function ProtectedRoute({ children }: ProtectedRouteProps) {
+function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', marginTop: '50px' }}>Cargando...</div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-screen space-y-4">
+        <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+        <p className="text-gray-500 font-medium animate-pulse text-sm">Cargando sesión...</p>
+      </div>
+    );
   }
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role as any)) {
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;
@@ -43,19 +54,55 @@ function App() {
           <CartProvider>
             <Toaster position="top-right" />
             <Routes>
+              <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
 
-              <Route path="/" element={
-                <ProtectedRoute>
+              <Route path="/dashboard" element={
+                <ProtectedRoute allowedRoles={['admin']}>
                   <Layout />
                 </ProtectedRoute>
               }>
                 <Route index element={<Dashboard />} />
-                <Route path="pos" element={<POS />} />
-                <Route path="inventory" element={<Inventory />} />
-                <Route path="customers" element={<Customers />} />
-                <Route path="history" element={<SalesHistory />} />
-                <Route path="settings" element={<Settings />} />
+              </Route>
+
+              <Route path="/pos" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<POS />} />
+              </Route>
+
+              <Route path="/inventory" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Inventory />} />
+              </Route>
+
+              <Route path="/customers" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Customers />} />
+              </Route>
+
+              <Route path="/history" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<SalesHistory />} />
+              </Route>
+
+              <Route path="/settings" element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Settings />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

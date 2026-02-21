@@ -15,12 +15,27 @@ switch ($method) {
         getProducts($pdo);
         break;
     case 'POST':
+        if ($user['role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden: Admin access required']);
+            exit();
+        }
         addProduct($pdo);
         break;
     case 'PUT':
+        if ($user['role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden: Admin access required']);
+            exit();
+        }
         updateProduct($pdo);
         break;
     case 'DELETE':
+        if ($user['role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden: Admin access required']);
+            exit();
+        }
         deleteProduct($pdo);
         break;
     default:
@@ -32,12 +47,14 @@ switch ($method) {
 function getProducts($pdo)
 {
     try {
-        $stmt = $pdo->query("SELECT * FROM products ORDER BY name ASC");
-        $products = $stmt->fetchAll();
-        echo json_encode($products);
+        // Cap at 2000 to prevent accidental full-table dumps
+        $limit = max(1, min(2000, (int)($_GET['limit'] ?? 2000)));
+        $stmt  = $pdo->prepare("SELECT * FROM products ORDER BY name ASC LIMIT :limit");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        echo json_encode($stmt->fetchAll());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        api_error('Error al obtener productos', $e);
     }
 }
 
@@ -70,8 +87,7 @@ function addProduct($pdo)
         $stmt->execute([$id]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al agregar producto', $e);
     }
 }
 
@@ -113,8 +129,7 @@ function updateProduct($pdo)
         $stmt->execute([$data['id']]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al actualizar producto', $e);
     }
 }
 
@@ -137,7 +152,6 @@ function deleteProduct($pdo)
         $stmt->execute([$id]);
         echo json_encode(['message' => 'Product deleted']);
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al eliminar producto', $e);
     }
 }

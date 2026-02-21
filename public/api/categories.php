@@ -31,8 +31,7 @@ function getCategories($pdo)
         $stmt = $pdo->query("SELECT * FROM categories ORDER BY name ASC");
         echo json_encode($stmt->fetchAll());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al obtener categorías', $e);
     }
 }
 
@@ -54,8 +53,7 @@ function addCategory($pdo)
         $stmt->execute([$id]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error en categorías', $e);
     }
 }
 
@@ -78,7 +76,6 @@ function deleteCategory($pdo)
         $stmt->execute([$id]);
         echo json_encode(['message' => 'Category deleted']);
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error en categorías', $e);
     }
 }

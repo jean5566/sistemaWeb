@@ -1,0 +1,15 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # Si es un archivo o directorio real que existe, servirlo directamente
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  
+  # Exceptuar las llamadas a la API de PHP para que no se redirijan a React
+  RewriteCond %{REQUEST_URI} !^/api/ [NC]
+  
+  # Si no es un archivo/directorio y no es la API, redirigir a index.html (React Router)
+  RewriteRule ^ index.html [QSA,L]
+</IfModule>

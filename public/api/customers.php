@@ -42,8 +42,7 @@ function getCustomers($pdo)
         $customers = $stmt->fetchAll();
         echo json_encode($customers);
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database error fetching customers: ' . $e->getMessage()]);
+        api_error('Error al obtener clientes', $e);
     }
 }
 
@@ -74,8 +73,7 @@ function addCustomer($pdo)
         $stmt->execute([$id]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error en clientes', $e);
     }
 }
 
@@ -117,8 +115,7 @@ function updateCustomer($pdo)
         $stmt->execute([$data['id']]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error en clientes', $e);
     }
 }
 
@@ -141,7 +138,6 @@ function deleteCustomer($pdo)
         $stmt->execute([$id]);
         echo json_encode(['message' => 'Customer deleted']);
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error en clientes', $e);
     }
 }

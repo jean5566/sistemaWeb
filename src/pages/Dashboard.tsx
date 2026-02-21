@@ -2,15 +2,17 @@
 import { ShoppingCart, Package, AlertTriangle, TrendingUp, Calendar } from 'lucide-react';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
+import { useCompanyData } from '../hooks/useCompanyData';
 
 export default function Dashboard() {
     const { products, loading: loadingInventory } = useInventory();
     const { sales, loading: loadingSales } = useSales();
+    const { companyData } = useCompanyData();
 
     const lowStockProducts = products.filter(p => p.stock <= (p.min_stock || 0));
     const totalProducts = products.length;
     const totalSalesCount = sales.length;
-    const totatRevenue = sales.reduce((sum, sale) => sum + Number(sale.total), 0);
+    const totalRevenue = sales.reduce((sum, sale) => sum + Number(sale.total), 0);
 
     if (loadingInventory || loadingSales) {
         return (
@@ -28,7 +30,6 @@ export default function Dashboard() {
             subtitle: 'Artículos en catálogo',
             icon: Package,
             colorClass: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 ring-blue-100 dark:ring-blue-500/20',
-            bgDecoration: 'bg-blue-500'
         },
         {
             title: 'Bajo Stock',
@@ -36,7 +37,6 @@ export default function Dashboard() {
             subtitle: 'Requieren atención',
             icon: AlertTriangle,
             colorClass: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 ring-red-100 dark:ring-red-500/20',
-            bgDecoration: 'bg-red-500',
             isWarning: lowStockProducts.length > 0
         },
         {
@@ -45,16 +45,14 @@ export default function Dashboard() {
             subtitle: 'Transacciones totales',
             icon: ShoppingCart,
             colorClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-100 dark:ring-emerald-500/20',
-            bgDecoration: 'bg-emerald-500',
             trend: '+12% vs ayer'
         },
         {
             title: 'Ingresos Totales',
-            value: `$${totatRevenue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`,
+            value: `$${totalRevenue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`,
             subtitle: 'Balance general',
             icon: TrendingUp,
             colorClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-100 dark:ring-emerald-500/20',
-            bgDecoration: 'bg-emerald-500',
         }
     ];
 
@@ -62,9 +60,16 @@ export default function Dashboard() {
         <div className="p-3 md:p-6 space-y-4 md:space-y-6 animate-in fade-in duration-500">
             {/* Header Area */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
-                <div>
-                    <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Panel de Control</h1>
-                    <p className="text-gray-400 font-bold text-[9px] md:text-[10px] mt-1 uppercase tracking-widest opacity-80">Vista general de tu negocio</p>
+                <div className="flex items-center gap-4">
+                    {companyData?.logo && (
+                        <div className="w-12 h-12 md:w-16 md:h-16 flex items-center justify-center overflow-hidden shrink-0">
+                            <img src={companyData.logo} alt="Logo" className="w-full h-full object-contain" />
+                        </div>
+                    )}
+                    <div>
+                        <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Panel de Control</h1>
+                        <p className="text-gray-400 font-bold text-[9px] md:text-[10px] mt-1 uppercase tracking-widest opacity-80">{companyData?.name || 'Vista general de tu negocio'}</p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 md:px-3 md:py-2 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm transition-colors self-start md:self-end">
                     <Calendar size={12} className="text-primary" />
@@ -82,7 +87,7 @@ export default function Dashboard() {
                         className={`bg-white dark:bg-gray-800 p-3 md:p-5 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-xl hover:shadow-gray-200/40 dark:hover:shadow-black/20 transition-all duration-300 group relative overflow-hidden`}
                     >
                         {/* Background subtle decoration */}
-                        <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-5 transition-transform group-hover:scale-150 duration-500 ${stat.bgDecoration}`} />
+
 
                         <div className="flex flex-col h-full space-y-2 md:space-y-3">
                             <div className="flex items-center justify-between">
@@ -120,8 +125,8 @@ export default function Dashboard() {
                                 <AlertTriangle size={16} className="md:w-5 md:h-5" strokeWidth={2.5} />
                             </div>
                             <div>
-                                <h2 className="text-sm md:text-base font-black text-gray-900 dark:text-white tracking-tight">Ventas Recientes</h2>
-                                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest italic leading-none mt-0.5">Últimos movimientos</p>
+                                <h2 className="text-sm md:text-base font-black text-gray-900 dark:text-white tracking-tight">Stock Bajo</h2>
+                                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest italic leading-none mt-0.5">Productos por agotar</p>
                             </div>
                         </div>
                     </div>
@@ -131,7 +136,7 @@ export default function Dashboard() {
                             lowStockProducts.map(p => (
                                 <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-gray-700/30 border border-gray-50 dark:border-gray-700 hover:border-red-200 transition-all group">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-600 flex items-center justify-center text-gray-400 font-bold group-hover:text-red-400 transition-colors text-xs">
+                                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-100 dark:border-gray-600 flex items-center justify-center text-gray-400 font-bold group-hover:text-red-400 transition-colors text-xs">
                                             {p.name.charAt(0)}
                                         </div>
                                         <div>

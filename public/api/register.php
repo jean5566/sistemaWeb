@@ -28,10 +28,15 @@ try {
 
     if ($userCount > 0) {
         // System initialized: Public registration is closed
-        // TODO: In future, allow authenticated admins to add users here
-        http_response_code(403);
-        echo json_encode(['error' => 'Registration is closed. Please contact administrator.']);
-        exit();
+        // Allow authenticated admins to add users
+        require_once 'auth_middleware.php';
+        $currentUser = authenticate();
+
+        if ($currentUser['role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Registration is closed. Only administrators can add new users.']);
+            exit();
+        }
     }
 
     // Check if user already exists (redundant if count is 0 but good for safety if logic changes)
@@ -45,7 +50,14 @@ try {
 
     // Process Registration
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
-    $role = 'admin'; // Default to admin for now, or check if it's the first user
+
+    // Default role logic
+    $role = 'admin';
+    if ($userCount > 0) {
+        // If system is already initialized, new users are cashiers by default 
+        // unless specified otherwise (and the registrar is an admin)
+        $role = (isset($data['role']) && in_array($data['role'], ['admin', 'cashier'])) ? $data['role'] : 'cashier';
+    }
 
     // Optional: Check if it's the first user to make them admin, others cashier
     // $stmtCount = $pdo->query("SELECT COUNT(*) FROM users");
@@ -83,6 +95,5 @@ try {
     ]);
 
 } catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+    api_error('Error al registrar usuario', $e);
 }

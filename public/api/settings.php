@@ -35,8 +35,7 @@ function getSettings($pdo)
             echo json_encode($settings);
         }
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al obtener configuración', $e);
     }
 }
 
@@ -50,7 +49,7 @@ function updateSettings($pdo)
 
     $fields = [];
     $params = [];
-    $allowed = ['name', 'address', 'phone', 'tax_id', 'email', 'currency', 'tax_rate'];
+    $allowed = ['name', 'address', 'phone', 'tax_id', 'email', 'currency', 'tax_rate', 'logo'];
 
     foreach ($data as $key => $value) {
         if (in_array($key, $allowed)) {
@@ -90,7 +89,6 @@ function updateSettings($pdo)
         echo json_encode($stmt->fetch());
 
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        api_error('Error al guardar configuración', $e);
     }
 }

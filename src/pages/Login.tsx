@@ -2,17 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { User, Lock, Loader2 } from 'lucide-react';
+import { User, Lock, Loader2, ArrowLeft } from 'lucide-react';
 
 export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [isSignUp, setIsSignUp] = useState(false);
-    const [systemInitialized, setSystemInitialized] = useState(true);
-    const { signIn, signUp, checkSystemInitialization } = useAuth();
+    const [pageLoading, setPageLoading] = useState(true);
+    const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
+    const [blocked, setBlocked] = useState(false);
+    const { signIn } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setPageLoading(false);
+        }, 0);
+        return () => clearTimeout(timer);
+    }, []);
 
     interface LocationState {
         from?: {
@@ -21,49 +29,67 @@ export default function Login() {
     }
 
     const state = location.state as LocationState;
-    const from = state?.from?.pathname || '/';
-
-    useEffect(() => {
-        const checkInit = async () => {
-            const initialized = await checkSystemInitialization();
-            setSystemInitialized(initialized);
-            if (!initialized) {
-                setIsSignUp(true);
-            }
-        };
-        checkInit();
-    }, []);
+    const from = state?.from?.pathname === '/' ? '/dashboard' : (state?.from?.pathname || '/dashboard');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (blocked) return;
         setLoading(true);
         try {
-            if (isSignUp) {
-                await signUp(email, password);
-                toast.success('Cuenta de administrador creada. ¡Bienvenido!');
-            } else {
-                await signIn(email, password);
-                toast.success('Bienvenido');
-            }
+            await signIn(email, password);
+            setAttemptsLeft(null);
+            setBlocked(false);
+            toast.success('Bienvenido');
             navigate(from, { replace: true });
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Ocurrió un error';
-            toast.error('Error: ' + errorMessage);
+        } catch (error: any) {
+            const status = error?.status;
+            const data   = error?.data;
+
+            if (status === 429) {
+                setBlocked(true);
+                setAttemptsLeft(0);
+                toast.error(data?.error || 'Demasiados intentos. Espere 15 minutos.');
+            } else {
+                const remaining = data?.attempts_left ?? null;
+                setAttemptsLeft(remaining);
+                const errorMessage = error instanceof Error ? error.message : 'Ocurrió un error';
+                toast.error(errorMessage);
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    if (pageLoading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden">
+        <div className="relative min-h-screen bg-gray-50 flex items-center justify-center p-4 animate-in fade-in duration-500">
+            {/* Back Button */}
+            <div className="absolute top-6 left-6 sm:top-8 sm:left-8">
+                <button
+                    type="button"
+                    onClick={() => navigate('/')}
+                    className="flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-all bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                    <ArrowLeft size={18} />
+                    <span className="font-bold text-sm">Volver al inicio</span>
+                </button>
+            </div>
+
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden mt-12 sm:mt-0">
                 <div className="p-8 pb-0 text-center">
                     <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
                         <User className="text-primary" size={40} />
                     </div>
                     <h2 className="text-3xl font-bold text-gray-900 mb-2">Bienvenido</h2>
                     <p className="text-gray-500">
-                        {isSignUp ? 'Configurar Administrador Inicial' : 'Ingresa a tu cuenta para continuar'}
+                        Ingresa a tu cuenta para continuar
                     </p>
                 </div>
 
@@ -98,32 +124,26 @@ export default function Login() {
                         </div>
                     </div>
 
+                    {attemptsLeft !== null && !blocked && attemptsLeft <= 2 && (
+                        <p className="text-center text-sm font-semibold text-amber-600 bg-amber-50 rounded-xl px-4 py-2">
+                            Advertencia: {attemptsLeft} intento{attemptsLeft !== 1 ? 's' : ''} restante{attemptsLeft !== 1 ? 's' : ''} antes de bloqueo temporal.
+                        </p>
+                    )}
+
+                    {blocked && (
+                        <p className="text-center text-sm font-semibold text-red-600 bg-red-50 rounded-xl px-4 py-2">
+                            Cuenta bloqueada temporalmente. Intente nuevamente en 15 minutos.
+                        </p>
+                    )}
+
                     <button
                         type="submit"
-                        disabled={loading}
+                        disabled={loading || blocked}
                         className="w-full py-4 bg-primary hover:brightness-110 text-white font-bold rounded-2xl transition-colors shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                         {loading && <Loader2 className="animate-spin" size={20} />}
-                        {loading ? 'Procesando...' : (isSignUp ? 'Crear Cuenta' : 'Iniciar Sesión')}
+                        {loading ? 'Procesando...' : 'Iniciar Sesión'}
                     </button>
-
-                    {isSignUp && (
-                        <div className="p-4 bg-blue-50 text-blue-700 rounded-2xl text-sm text-center">
-                            <p>Bienvenido. Al ser el primer usuario, se le asignarán permisos de <strong>Administrador</strong>.</p>
-                        </div>
-                    )}
-
-                    {!systemInitialized && (
-                        <div className="text-center">
-                            <button
-                                type="button"
-                                onClick={() => setIsSignUp(!isSignUp)}
-                                className="text-primary font-bold hover:underline"
-                            >
-                                {isSignUp ? 'Volver al Login' : 'Configurar Administrador'}
-                            </button>
-                        </div>
-                    )}
                 </form>
             </div>
         </div>

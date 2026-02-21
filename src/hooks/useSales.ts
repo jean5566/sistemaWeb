@@ -13,11 +13,11 @@ export function useSales() {
         setLoading(true);
         try {
             // Define a type for the raw API response if strictly needed, or use any for legacy shape
-            const data = await api.get<any[]>('sales.php');
+            const response = await api.get<any>('sales.php');
+            // API now returns { data: [], total, page, pages } — fall back to array for compatibility
+            const data: any[] = Array.isArray(response) ? response : (response?.data ?? []);
 
             if (Array.isArray(data)) {
-                // Transform data to match UI expectations
-                // Transform data to match UI expectations
                 const formattedSales: Sale[] = data.map(sale => ({
                     id: sale.id,
                     date: new Date(sale.created_at).toLocaleDateString(),
@@ -41,7 +41,7 @@ export function useSales() {
                 }));
                 setSales(formattedSales);
             } else {
-                console.error('Sales format invalid:', data);
+                console.error('Sales format invalid:', response);
                 setSales([]);
             }
         } catch (error) {
@@ -77,8 +77,9 @@ export function useSales() {
             toast.success('Venta registrada con éxito');
             fetchSales(); // Refresh history
             return response.id;
-        } catch (error) {
-            toast.error('Error al registrar venta');
+        } catch (error: any) {
+            const message = error?.message || 'Error al registrar venta';
+            toast.error(message);
             throw error;
         }
     };

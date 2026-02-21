@@ -80,6 +80,12 @@ export interface Sale {
     payment_method?: string;
     document_type?: string;
     customers?: Customer; // For the joined data
+    // SRI Fields
+    sri_access_key?: string;
+    sri_status?: string;
+    sri_auth_date?: string;
+    sri_xml?: string;
+    sri_message?: string;
 }
 
 // API Responses

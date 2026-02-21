@@ -10,6 +10,7 @@ export interface CompanyData {
     email: string;
     currency: string;
     taxRate: number;
+    logo?: string;
 }
 
 interface CompanyContextType {
@@ -29,7 +30,8 @@ const dbToFrontend = (dbData: any): CompanyData => {
         taxId: dbData.tax_id || '',
         email: dbData.email || '',
         currency: dbData.currency || '$',
-        taxRate: Number(dbData.tax_rate) || 0
+        taxRate: Number(dbData.tax_rate) || 0,
+        logo: dbData.logo || ''
     };
 };
 
@@ -41,7 +43,8 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         taxId: '',
         email: '',
         currency: '$',
-        taxRate: 0
+        taxRate: 0,
+        logo: ''
     });
     const [loading, setLoading] = useState(true);
 
@@ -63,10 +66,25 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         fetchSettings();
     }, []);
 
+    useEffect(() => {
+        if (companyData.name) {
+            document.title = companyData.name;
+        }
+        if (companyData.logo) {
+            let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.head.appendChild(link);
+            }
+            link.href = companyData.logo;
+        }
+    }, [companyData.name, companyData.logo]);
+
     const updateCompanyData = async (updates: Partial<CompanyData>) => {
         // Optimistic update
-        const newData = { ...companyData, ...updates };
-        setCompanyData(newData);
+        const previous = companyData;
+        setCompanyData({ ...companyData, ...updates });
 
         try {
             const dbFieldMap: Record<string, string> = {
@@ -74,18 +92,20 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 taxRate: 'tax_rate'
             };
 
+            // Build full payload and send in a single request
+            const payload: Record<string, any> = {};
             for (const [key, value] of Object.entries(updates)) {
                 const dbField = dbFieldMap[key] || key;
-                const payload = { [dbField]: value };
-                await api.post('settings.php', payload);
+                payload[dbField] = value;
             }
 
+            await api.post('settings.php', payload);
             toast.success('Configuración guardada');
         } catch (error) {
             console.error('Error updating settings:', error);
             toast.error('Error al guardar configuración');
-            // Revert on error? Or just fetch again
-            fetchSettings();
+            // Revert optimistic update on error
+            setCompanyData(previous);
         }
     };
 

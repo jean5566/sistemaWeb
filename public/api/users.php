@@ -9,6 +9,54 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
+if ($method === 'GET') {
+    if ($user['role'] !== 'admin') {
+        http_response_code(403);
+        echo json_encode(['error' => 'Forbidden']);
+        exit();
+    }
+
+    try {
+        $stmt = $pdo->query("SELECT id, name, email, role, created_at FROM users ORDER BY id DESC");
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode($users);
+        exit();
+    } catch (PDOException $e) {
+        api_error('Error al obtener usuarios', $e);
+    }
+}
+
+if ($method === 'DELETE') {
+    if ($user['role'] !== 'admin') {
+        http_response_code(403);
+        echo json_encode(['error' => 'Forbidden']);
+        exit();
+    }
+
+    $id = $_GET['id'] ?? null;
+    if (!$id) {
+        http_response_code(400);
+        echo json_encode(['error' => 'User ID is required']);
+        exit();
+    }
+
+    // Prevent deleting self? (Optional but good)
+    if ($id == $user['id']) {
+        http_response_code(400);
+        echo json_encode(['error' => 'No puedes eliminarte a ti mismo']);
+        exit();
+    }
+
+    try {
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        echo json_encode(['success' => true, 'message' => 'Usuario eliminado correctamente']);
+        exit();
+    } catch (PDOException $e) {
+        api_error('Error al eliminar usuario', $e);
+    }
+}
+
 if ($method !== 'PUT') {
     http_response_code(405);
     echo json_encode(['error' => 'Method not allowed']);
@@ -81,6 +129,5 @@ try {
     ]);
 
 } catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+    api_error('Error al actualizar usuario', $e);
 }

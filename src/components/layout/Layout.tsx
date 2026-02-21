@@ -15,7 +15,7 @@ export function Layout() {
 
     return (
         <div className="flex h-screen bg-content-bg overflow-hidden">
-            <Sidebar companyName={companyName} />
+            <Sidebar companyName={companyName} logo={companyData?.logo} />
             <main className="flex-1 md:pl-20 h-full pb-16 md:pb-0 overflow-hidden">
                 <Outlet />
             </main>

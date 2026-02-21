@@ -1,6 +1,29 @@
 <?php
 // Remove closing tag to prevent whitespace issues
 
+// Production: never show PHP errors to the browser
+error_reporting(0);
+ini_set('display_errors', 0);
+
+// Load Composer dependencies
+if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
+    require_once __DIR__ . '/../../vendor/autoload.php';
+}
+
+/**
+ * Log the real error server-side and return a safe JSON response.
+ * In cPanel you can see these in: Logs > Error Log
+ */
+function api_error(string $publicMessage, Throwable $e = null, int $code = 500): void
+{
+    if ($e !== null) {
+        error_log('[API ERROR] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    }
+    http_response_code($code);
+    echo json_encode(['error' => $publicMessage]);
+    exit();
+}
+
 function loadEnv($path)
 {
     // If DB_HOST is already set in the environment (e.g. via Docker), 
@@ -55,17 +78,14 @@ try {
         PDO::ATTR_EMULATE_PREPARES => false,
     ];
     $pdo = new PDO($dsn, $username, $password, $options);
-    
+
     // Set Timezone to UTC-5 (America/Bogota, Lima, Guayaquil)
     date_default_timezone_set('America/Bogota');
     $pdo->exec("SET time_zone = '-05:00'");
 } catch (PDOException $e) {
     header('Content-Type: application/json');
+    error_log('[DB CONNECTION] ' . $e->getMessage());
     http_response_code(500);
-    // Be careful exposing full error details in production
-    echo json_encode([
-        'error' => 'Database connection failed',
-        'details' => $e->getMessage()
-    ]);
+    echo json_encode(['error' => 'No se pudo conectar a la base de datos']);
     exit();
 }

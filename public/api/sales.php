@@ -20,101 +20,312 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents("php://input"), true);
 
-// Validation
-if (!isset($data['total']) || !isset($data['items']) || !is_array($data['items'])) {
+// Validation — total is NOT accepted from the client, it is calculated server-side
+if (!isset($data['items']) || !is_array($data['items']) || count($data['items']) === 0) {
     http_response_code(400);
-    echo json_encode(['error' => 'Invalid sale data']);
+    echo json_encode(['error' => 'Se requieren items para procesar la venta']);
     exit();
 }
+
+$documentType = $data['document_type'] ?? 'ticket';
 
 try {
     $pdo->beginTransaction();
 
-    // 1. Create Sale Record
-    $sql = "INSERT INTO sales (customer_id, total, payment_method, document_type) VALUES (:customer_id, :total, :payment_method, :document_type)";
+    // 1. Load real prices and stock from DB — never trust client-sent prices
+    $productIds   = array_map('intval', array_column($data['items'], 'product_id'));
+    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+    $productStmt  = $pdo->prepare("SELECT id, name, price, stock FROM products WHERE id IN ($placeholders)");
+    $productStmt->execute($productIds);
+    $productsMap  = [];
+    foreach ($productStmt->fetchAll() as $p) {
+        $productsMap[(int)$p['id']] = $p;
+    }
+
+    // Validate all products exist
+    foreach ($data['items'] as $item) {
+        if (!isset($productsMap[(int)$item['product_id']])) {
+            $pdo->rollBack();
+            http_response_code(400);
+            echo json_encode(['error' => "Producto #" . (int)$item['product_id'] . " no encontrado"]);
+            exit();
+        }
+    }
+
+    // 2. Fetch tax rate from DB — never trust client-sent tax rate
+    $taxRateRow = $pdo->query("SELECT tax_rate FROM company_settings LIMIT 1")->fetch();
+    $taxRate    = $taxRateRow ? (float)$taxRateRow['tax_rate'] : 0;
+
+    // 3. Calculate server-side subtotal and total
+    $serverSubtotal = 0;
+    foreach ($data['items'] as $item) {
+        $productId = (int) $item['product_id'];
+        $quantity  = (int) $item['quantity'];
+        if ($quantity <= 0) {
+            $pdo->rollBack();
+            http_response_code(400);
+            echo json_encode(['error' => 'La cantidad debe ser mayor a cero']);
+            exit();
+        }
+        $serverSubtotal += $productsMap[$productId]['price'] * $quantity;
+    }
+
+    $taxAmount   = ($documentType === 'factura') ? round($serverSubtotal * ($taxRate / 100), 2) : 0;
+    $serverTotal = round($serverSubtotal + $taxAmount, 2);
+
+    // 4. Create Sale Record using server-calculated total
+    $sql  = "INSERT INTO sales (customer_id, total, payment_method, document_type) VALUES (:customer_id, :total, :payment_method, :document_type)";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
-        ':customer_id' => $data['customer_id'] ?? null,
-        ':total' => $data['total'],
+        ':customer_id'    => $data['customer_id'] ?? null,
+        ':total'          => $serverTotal,
         ':payment_method' => $data['payment_method'] ?? 'cash',
-        ':document_type' => $data['document_type'] ?? 'ticket'
+        ':document_type'  => $documentType
     ]);
 
     $saleId = $pdo->lastInsertId();
 
-    // 2. Process Items
-    $itemSql = "INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (:sale_id, :product_id, :quantity, :unit_price)";
+    // 5. Process Items using real DB prices
+    $itemSql  = "INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (:sale_id, :product_id, :quantity, :unit_price)";
     $itemStmt = $pdo->prepare($itemSql);
 
-    $stockSql = "UPDATE products SET stock = stock - :quantity WHERE id = :product_id";
+    // Atomic stock deduction — WHERE stock >= :quantity_check prevents race conditions
+    $stockSql  = "UPDATE products SET stock = stock - :quantity
+                  WHERE id = :product_id AND stock >= :quantity_check";
     $stockStmt = $pdo->prepare($stockSql);
 
     foreach ($data['items'] as $item) {
-        // Insert Item
+        $productId   = (int) $item['product_id'];
+        $quantity    = (int) $item['quantity'];
+        $realPrice   = (float) $productsMap[$productId]['price'];
+        $available   = (int) $productsMap[$productId]['stock'];
+        $productName = $productsMap[$productId]['name'];
+
+        // Check stock availability
+        if ($available < $quantity) {
+            $pdo->rollBack();
+            http_response_code(409);
+            echo json_encode([
+                'error' => "Stock insuficiente para \"$productName\". Disponible: $available, solicitado: $quantity"
+            ]);
+            exit();
+        }
+
+        // Insert sale item with real DB price
         $itemStmt->execute([
-            ':sale_id' => $saleId,
-            ':product_id' => $item['product_id'],
-            ':quantity' => $item['quantity'],
-            ':unit_price' => $item['unit_price']
+            ':sale_id'    => $saleId,
+            ':product_id' => $productId,
+            ':quantity'   => $quantity,
+            ':unit_price' => $realPrice
         ]);
 
-        // Deduct Stock
+        // Atomic stock deduction
         $stockStmt->execute([
-            ':quantity' => $item['quantity'],
-            ':product_id' => $item['product_id']
+            ':quantity'       => $quantity,
+            ':product_id'     => $productId,
+            ':quantity_check' => $quantity
         ]);
+
+        // If 0 rows affected, another transaction consumed the stock first
+        if ($stockStmt->rowCount() === 0) {
+            $pdo->rollBack();
+            http_response_code(409);
+            echo json_encode([
+                'error' => "Stock insuficiente para \"$productName\". Intente nuevamente."
+            ]);
+            exit();
+        }
     }
 
     $pdo->commit();
-    echo json_encode(['id' => $saleId, 'message' => 'Sale processed successfully']);
+
+    // --- SRI INTEGRATION START ---
+    try {
+        // A. Fetch Full Sale Data
+        $stmtSale = $pdo->prepare("
+            SELECT s.*, c.name, c.document_id, c.email, c.phone 
+            FROM sales s 
+            LEFT JOIN customers c ON s.customer_id = c.id 
+            WHERE s.id = :id
+        ");
+        $stmtSale->execute([':id' => $saleId]);
+        $saleData = $stmtSale->fetch(PDO::FETCH_ASSOC);
+
+        $stmtItems = $pdo->prepare("
+            SELECT si.*, p.name as product_name
+            FROM sale_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id = :sale_id
+        ");
+        $stmtItems->execute([':sale_id' => $saleId]);
+        $itemsData = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+
+        // B. Prepare Customer Data
+        $customerData = [
+            'name' => $saleData['name'] ?? 'CONSUMIDOR FINAL',
+            'document_id' => $saleData['document_id'] ?? '9999999999999',
+            'email' => $saleData['email'] ?? '',
+            'phone' => $saleData['phone'] ?? ''
+        ];
+
+        // C. Call SRI Service
+        require_once __DIR__ . '/classes/SriService.php';
+
+        // Fetch Company Data for XML
+        $stmtCompany = $pdo->query("SELECT * FROM company_settings LIMIT 1");
+        $companySettings = $stmtCompany->fetch(PDO::FETCH_ASSOC);
+
+        // SRI Configuration from Environment
+        $envSri = $_ENV['SRI_ENV'] ?? getenv('SRI_ENV') ?: 1;
+        $pathFirma = $_ENV['SRI_FIRMA_PATH'] ?? getenv('SRI_FIRMA_PATH') ?: __DIR__ . '/../../firma.p12';
+        $passFirma = $_ENV['SRI_FIRMA_PASS'] ?? getenv('SRI_FIRMA_PASS') ?: 'TuClaveDeFirma';
+
+        $sri = new SriService($envSri, $pathFirma, $passFirma);
+        $result = $sri->procesarVenta($saleData, $itemsData, $customerData, $companySettings);
+
+        // D. Update Database with SRI Result
+        $status = ($result['status'] === 'SUCCESS') ? 'AUTHORIZED' : 'REJECTED';
+        $authDate = null;
+        $mensaje = null;
+
+        if ($status === 'AUTHORIZED') {
+            // Extract Auth Date from standard SRI response structure
+            // Response is object -> autorizaciones -> autorizacion -> fechaAutorizacion
+            if (isset($result['autorizacion']->autorizaciones->autorizacion)) {
+                $auth = $result['autorizacion']->autorizaciones->autorizacion;
+                if (is_array($auth))
+                    $auth = $auth[0]; // Handle array case
+                $authDate = $auth->fechaAutorizacion ?? date('Y-m-d H:i:s');
+            }
+        } else {
+            // Handle error messages
+            $mensaje = json_encode($result['mensaje'] ?? 'Unknown Error');
+        }
+
+        $updateSql = "UPDATE sales SET sri_access_key = :key, sri_status = :status, sri_auth_date = :date, sri_xml = :xml, sri_message = :msg WHERE id = :id";
+        $updateStmt = $pdo->prepare($updateSql);
+        $updateStmt->execute([
+            ':key' => $result['clave_acceso'] ?? null,
+            ':status' => $status,
+            ':date' => $authDate,
+            ':xml' => $result['xml_signed'] ?? null,
+            ':msg' => $mensaje,
+            ':id' => $saleId
+        ]);
+
+        echo json_encode([
+            'id'      => $saleId,
+            'total'   => $serverTotal,
+            'message' => 'Sale processed successfully',
+            'sri'     => $result
+        ]);
+
+    } catch (Exception $eSri) {
+        // If SRI fails, we still return success for the SALE, but error for SRI
+        // The sale is already committed.
+        error_log('[SRI ERROR] sale_id=' . $saleId . ' - ' . $eSri->getMessage());
+        echo json_encode([
+            'id'        => $saleId,
+            'total'     => $serverTotal,
+            'message'   => 'Venta guardada, pero falló la integración con el SRI',
+            'sri_error' => 'Error de comunicación con el SRI'
+        ]);
+    }
+    // --- SRI INTEGRATION END ---
 
 } catch (Exception $e) {
     $pdo->rollBack();
-    http_response_code(500);
-    echo json_encode(['error' => 'Transaction failed: ' . $e->getMessage()]);
+    api_error('Error al procesar la venta', $e);
 }
 
 function getSales($pdo)
 {
     try {
-        // Fetch all sales with customer info
+        $limit  = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+        $page   = max(1, (int)($_GET['page'] ?? 1));
+        $offset = ($page - 1) * $limit;
+        $search = trim($_GET['search'] ?? '');
+
+        $whereClause = '';
+        $params      = [];
+
+        if ($search !== '') {
+            $whereClause = "WHERE c.name LIKE :search OR CAST(s.id AS CHAR) = :id";
+            $params[':search'] = '%' . $search . '%';
+            $params[':id']     = $search;
+        }
+
+        // Total count for pagination metadata
+        $countSql = "
+            SELECT COUNT(*) FROM sales s
+            LEFT JOIN customers c ON s.customer_id = c.id
+            $whereClause
+        ";
+        $countStmt = $pdo->prepare($countSql);
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        // Query 1: paginated sales with customer info
         $sql = "
             SELECT s.*, c.name as c_name, c.document_id as c_doc, c.email as c_email, c.phone as c_phone
             FROM sales s
             LEFT JOIN customers c ON s.customer_id = c.id
+            $whereClause
             ORDER BY s.created_at DESC
+            LIMIT :limit OFFSET :offset
         ";
-        $stmt = $pdo->query($sql);
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
+        }
+        $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
         $sales = $stmt->fetchAll();
 
-        // Populate items for each sale
-        foreach ($sales as &$sale) {
-            $itemSql = "
-                SELECT si.quantity, si.unit_price, p.name as product_name
-                FROM sale_items si
-                LEFT JOIN products p ON si.product_id = p.id
-                WHERE si.sale_id = :sale_id
-            ";
-            $stmtItem = $pdo->prepare($itemSql);
-            $stmtItem->execute([':sale_id' => $sale['id']]);
-            $sale['items'] = $stmtItem->fetchAll();
-
-            // Structure customer key to match expected JSON
-            if ($sale['c_name']) {
-                $sale['customers'] = [
-                    'name' => $sale['c_name'],
-                    'document_id' => $sale['c_doc'],
-                    'email' => $sale['c_email'],
-                    'phone' => $sale['c_phone']
-                ];
-            } else {
-                $sale['customers'] = null;
-            }
+        if (empty($sales)) {
+            echo json_encode(['data' => [], 'total' => $total, 'page' => $page, 'limit' => $limit]);
+            return;
         }
 
-        echo json_encode($sales);
+        // Query 2: all items for this page's sales in one query — no N+1
+        $saleIds      = array_column($sales, 'id');
+        $placeholders = implode(',', array_fill(0, count($saleIds), '?'));
+        $itemStmt     = $pdo->prepare("
+            SELECT si.sale_id, si.quantity, si.unit_price, p.name as product_name
+            FROM sale_items si
+            LEFT JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id IN ($placeholders)
+        ");
+        $itemStmt->execute($saleIds);
+
+        $itemsBySale = [];
+        foreach ($itemStmt->fetchAll() as $row) {
+            $itemsBySale[$row['sale_id']][] = [
+                'quantity'     => $row['quantity'],
+                'unit_price'   => $row['unit_price'],
+                'product_name' => $row['product_name']
+            ];
+        }
+
+        foreach ($sales as &$sale) {
+            $sale['items']     = $itemsBySale[$sale['id']] ?? [];
+            $sale['customers'] = $sale['c_name'] ? [
+                'name'        => $sale['c_name'],
+                'document_id' => $sale['c_doc'],
+                'email'       => $sale['c_email'],
+                'phone'       => $sale['c_phone']
+            ] : null;
+        }
+
+        echo json_encode([
+            'data'  => $sales,
+            'total' => $total,
+            'page'  => $page,
+            'limit' => $limit,
+            'pages' => (int) ceil($total / $limit)
+        ]);
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Database error fetching sales: ' . $e->getMessage()]);
+        api_error('Error al obtener ventas', $e);
     }
 }

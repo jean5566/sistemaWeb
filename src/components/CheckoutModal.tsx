@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { Check, User, Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 import { Modal } from './Modal';
 import { Receipt } from './Receipt';
 import { CartItem } from '../context/CartContext';
@@ -41,6 +41,8 @@ export function CheckoutModal({
     const [finalCart, setFinalCart] = useState<CartItem[]>([]);
     const [committedSaleId, setCommittedSaleId] = useState<string | number | null>(null);
 
+    const [finalTotals, setFinalTotals] = useState({ subtotal: 0, tax: 0, total: 0 });
+
     const receiptRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
@@ -49,7 +51,7 @@ export function CheckoutModal({
         onAfterPrint: onClose
     });
 
-    const baseTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const baseTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [cart]);
     const taxAmount = docType === 'factura' ? baseTotal * (taxRate / 100) : 0;
     const finalTotal = baseTotal + taxAmount;
 
@@ -74,14 +76,18 @@ export function CheckoutModal({
     };
 
     const handleConfirm = async () => {
+        // Capture current values before clearing
         setFinalCart([...cart]);
+        setFinalTotals({
+            subtotal: baseTotal,
+            tax: taxAmount,
+            total: finalTotal
+        });
 
         const saleId = await onConfirm({
             customer: getCustomer(),
             type: docType,
             paymentMethod: 'Efectivo/Tarjeta', // This is overridden by pendingPaymentMethod in parent usually, or we should pass it in? 
-            // The parent 'handleFinalizeCheckout' takes { type, finalTotal, customer }
-            // The parent uses 'pendingPaymentMethod' from its own state.
             finalTotal: finalTotal
         });
 
@@ -223,9 +229,9 @@ export function CheckoutModal({
                         date={previewDate}
                         customer={getCustomer()}
                         items={finalCart.length > 0 ? finalCart : cart}
-                        subtotal={baseTotal}
-                        tax={taxAmount}
-                        total={finalTotal}
+                        subtotal={finalTotals.subtotal || baseTotal}
+                        tax={finalTotals.tax || taxAmount}
+                        total={finalTotals.total || finalTotal}
                         currency={currency}
                         docType={docType}
                     />

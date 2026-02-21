@@ -3,9 +3,11 @@ import { useInventory } from '../hooks/useInventory';
 import { useCategories } from '../hooks/useCategories';
 import { Plus, Search, Edit, Trash2, X, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, Check } from 'lucide-react';
 import { Product } from '../types/models';
+import { useAuth } from '../context/AuthContext';
 
 
 export default function Inventory() {
+    const { user } = useAuth();
     const { products, loading: loadingProducts, addProduct, updateProduct, deleteProduct } = useInventory();
     const { categories } = useCategories();
     const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -120,30 +122,34 @@ export default function Inventory() {
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">Inventario</h2>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Control de existencias</p>
                 </div>
+                {user?.role === 'admin' && (
+                    <button
+                        onClick={() => {
+                            setEditingProduct(null);
+                            setFormData({ name: '', code: '', price: '', category_id: '', stock: '', min_stock: '', image: '' });
+                            setIsModalOpen(true);
+                        }}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white font-semibold rounded-2xl hover:brightness-110 transition-all shadow-lg shadow-primary/20 active:scale-95 text-sm"
+                    >
+                        <Plus size={18} strokeWidth={2.5} />
+                        <span>Nuevo Producto</span>
+                    </button>
+                )}
+            </div>
+
+            {/* Mobile Floating Action Button (FAB) */}
+            {user?.role === 'admin' && (
                 <button
                     onClick={() => {
                         setEditingProduct(null);
                         setFormData({ name: '', code: '', price: '', category_id: '', stock: '', min_stock: '', image: '' });
                         setIsModalOpen(true);
                     }}
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white font-semibold rounded-2xl hover:brightness-110 transition-all shadow-lg shadow-primary/20 active:scale-95 text-sm"
+                    className="md:hidden fixed bottom-20 right-6 z-50 w-14 h-14 bg-primary text-white rounded-full flex items-center justify-center shadow-2xl shadow-primary/40 active:scale-90 transition-transform border-4 border-white dark:border-gray-800"
                 >
-                    <Plus size={18} strokeWidth={2.5} />
-                    <span>Nuevo Producto</span>
+                    <Plus size={28} strokeWidth={3} />
                 </button>
-            </div>
-
-            {/* Mobile Floating Action Button (FAB) */}
-            <button
-                onClick={() => {
-                    setEditingProduct(null);
-                    setFormData({ name: '', code: '', price: '', category_id: '', stock: '', min_stock: '', image: '' });
-                    setIsModalOpen(true);
-                }}
-                className="md:hidden fixed bottom-20 right-6 z-50 w-14 h-14 bg-primary text-white rounded-full flex items-center justify-center shadow-2xl shadow-primary/40 active:scale-90 transition-transform border-4 border-white dark:border-gray-800"
-            >
-                <Plus size={28} strokeWidth={3} />
-            </button>
+            )}
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl border border-slate-200 dark:border-gray-700 overflow-hidden flex-1 flex flex-col shadow-sm">
                 <div className="p-6 border-b border-slate-100 dark:border-gray-700/50 flex flex-col lg:flex-row gap-6 items-center bg-slate-50/30 dark:bg-gray-800/20">
@@ -223,7 +229,7 @@ export default function Inventory() {
                                 <th className="px-5 py-3">Precio</th>
                                 <th className="px-5 py-3">Existencia</th>
                                 <th className="px-5 py-3">Stock Mín.</th>
-                                <th className="px-5 py-3 text-right">Acciones</th>
+                                {user?.role === 'admin' && <th className="px-5 py-3 text-right">Acciones</th>}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -260,22 +266,24 @@ export default function Inventory() {
                                                 {product.min_stock || 0}
                                             </span>
                                         </td>
-                                        <td className="px-5 py-3 text-right">
-                                            <div className="flex justify-end gap-1">
-                                                <button
-                                                    onClick={() => handleEdit(product)}
-                                                    className="p-1.5 text-primary hover:bg-primary/10 dark:hover:bg-primary/20 rounded-lg transition-colors"
-                                                >
-                                                    <Edit size={16} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(product.id)}
-                                                    className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        </td>
+                                        {user?.role === 'admin' && (
+                                            <td className="px-5 py-3 text-right">
+                                                <div className="flex justify-end gap-1">
+                                                    <button
+                                                        onClick={() => handleEdit(product)}
+                                                        className="p-1.5 text-primary hover:bg-primary/10 dark:hover:bg-primary/20 rounded-lg transition-colors"
+                                                    >
+                                                        <Edit size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(product.id)}
+                                                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        )}
                                     </tr>
                                 );
                             })}
@@ -298,20 +306,22 @@ export default function Inventory() {
                                         <span className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{product.code || 'S/C'}</span>
                                         <h3 className="font-bold text-gray-900 dark:text-white text-base leading-tight pr-12">{product.name}</h3>
                                     </div>
-                                    <div className="flex gap-1 absolute top-4 right-4 translate-y-0.5">
-                                        <button
-                                            onClick={() => handleEdit(product)}
-                                            className="p-2 text-primary bg-primary/10 dark:bg-primary/20 rounded-xl transition-all active:scale-95"
-                                        >
-                                            <Edit size={16} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(product.id)}
-                                            className="p-2 text-red-500 bg-red-50 dark:bg-red-900/30 rounded-xl transition-all active:scale-95"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
+                                    {user?.role === 'admin' && (
+                                        <div className="flex gap-1 absolute top-4 right-4 translate-y-0.5">
+                                            <button
+                                                onClick={() => handleEdit(product)}
+                                                className="p-2 text-primary bg-primary/10 dark:bg-primary/20 rounded-xl transition-all active:scale-95"
+                                            >
+                                                <Edit size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(product.id)}
+                                                className="p-2 text-red-500 bg-red-50 dark:bg-red-900/30 rounded-xl transition-all active:scale-95"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex items-center gap-2 mb-4">

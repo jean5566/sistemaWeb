@@ -107,7 +107,7 @@ export default function POS() {
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id)}
                                 className={`px-7 py-2.5 rounded-[18px] text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-300 whitespace-nowrap ${selectedCategory === cat.id
-                                    ? 'bg-primary text-white shadow-lg shadow-primary/25 scale-105 z-10'
+                                    ? 'bg-primary text-white z-10'
                                     : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
                                     }`}
                             >

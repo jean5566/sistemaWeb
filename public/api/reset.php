@@ -28,6 +28,5 @@ try {
     echo json_encode(['message' => 'System reset successful']);
 } catch (PDOException $e) {
     $pdo->rollBack();
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    api_error('Error al resetear el sistema', $e);
 }
