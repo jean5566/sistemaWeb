@@ -16,7 +16,6 @@ import Customers from './pages/Customers';
 import SalesHistory from './pages/SalesHistory';
 import Settings from './pages/Settings';
 
-// import './App.css';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
