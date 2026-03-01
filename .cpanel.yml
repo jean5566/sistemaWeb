@@ -5,7 +5,7 @@
 deployment:
   tasks:
     # Variables de entorno
-    - export DEPLOYPATH=/home/TU_USUARIO_CPANEL/public_html
+    - export DEPLOYPATH=/home/pernoyc/public_html  
 
     # Deploy del backend PHP
     - /bin/cp -R public/api $DEPLOYPATH/api
