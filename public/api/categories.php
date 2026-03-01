@@ -11,13 +11,13 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        getCategories($pdo);
+        getCategories($pdo, $user);
         break;
     case 'POST':
-        addCategory($pdo);
+        addCategory($pdo, $user);
         break;
     case 'DELETE':
-        deleteCategory($pdo);
+        deleteCategory($pdo, $user);
         break;
     default:
         http_response_code(405);
@@ -25,17 +25,19 @@ switch ($method) {
         break;
 }
 
-function getCategories($pdo)
+function getCategories($pdo, $user)
 {
     try {
-        $stmt = $pdo->query("SELECT * FROM categories ORDER BY name ASC");
+        $tenantId = $user['tenant_id'] ?? 1;
+        $stmt = $pdo->prepare("SELECT * FROM categories WHERE tenant_id = :tenant_id ORDER BY name ASC");
+        $stmt->execute([':tenant_id' => $tenantId]);
         echo json_encode($stmt->fetchAll());
     } catch (PDOException $e) {
         api_error('Error al obtener categorías', $e);
     }
 }
 
-function addCategory($pdo)
+function addCategory($pdo, $user)
 {
     $data = json_decode(file_get_contents("php://input"), true);
     if (!isset($data['name'])) {
@@ -44,9 +46,10 @@ function addCategory($pdo)
         return;
     }
 
+    $tenantId = $user['tenant_id'] ?? 1;
     try {
-        $stmt = $pdo->prepare("INSERT INTO categories (name) VALUES (:name)");
-        $stmt->execute([':name' => $data['name']]);
+        $stmt = $pdo->prepare("INSERT INTO categories (tenant_id, name) VALUES (:tenant_id, :name)");
+        $stmt->execute([':tenant_id' => $tenantId, ':name' => $data['name']]);
 
         $id = $pdo->lastInsertId();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = ?");
@@ -57,7 +60,7 @@ function addCategory($pdo)
     }
 }
 
-function deleteCategory($pdo)
+function deleteCategory($pdo, $user)
 {
     $id = $_GET['id'] ?? null;
     if (!$id) {
@@ -71,9 +74,10 @@ function deleteCategory($pdo)
         return;
     }
 
+    $tenantId = $user['tenant_id'] ?? 1;
     try {
-        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ? AND tenant_id = ?");
+        $stmt->execute([$id, $tenantId]);
         echo json_encode(['message' => 'Category deleted']);
     } catch (PDOException $e) {
         api_error('Error en categorías', $e);

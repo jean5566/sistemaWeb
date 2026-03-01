@@ -26,7 +26,7 @@ export function useSales() {
                     document_type: sale.document_type,
                     created_at: sale.created_at,
                     customers: sale.customers ? {
-                        id: 0, // ID not always returned in nested object, but required by interface
+                        id: sale.customer_id,
                         name: sale.customers.name,
                         document_id: sale.customers.document_id,
                         email: sale.customers.email,
@@ -46,7 +46,7 @@ export function useSales() {
             }
         } catch (error) {
             console.error('Error fetching sales:', error);
-            // toast.error('Error al cargar historial de ventas');
+            toast.error('Error al cargar historial de ventas');
         } finally {
             setLoading(false);
         }

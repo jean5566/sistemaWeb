@@ -68,9 +68,10 @@ try {
 
         require_once 'SimpleJWT.php';
         $token = SimpleJWT::encode([
-            'id'    => $user['id'],
-            'email' => $user['email'],
-            'role'  => $user['role']
+            'id'        => $user['id'],
+            'email'     => $user['email'],
+            'role'      => $user['role'],
+            'tenant_id' => $user['tenant_id'] ?? 1
         ]);
 
         echo json_encode([

@@ -3,7 +3,10 @@ require_once 'cors.php';
 require_once 'auth_middleware.php';
 require_once 'config.php';
 
-$user = authenticate();
+$user = null;
+if ($_SERVER['REQUEST_METHOD'] !== 'OPTIONS') {
+    $user = authenticate();
+}
 
 header('Content-Type: application/json');
 
@@ -16,8 +19,10 @@ if ($method === 'GET') {
         exit();
     }
 
+    $tenantId = $user['tenant_id'] ?? 1;
     try {
-        $stmt = $pdo->query("SELECT id, name, email, role, created_at FROM users ORDER BY id DESC");
+        $stmt = $pdo->prepare("SELECT id, name, email, role, created_at FROM users WHERE tenant_id = ? ORDER BY id DESC");
+        $stmt->execute([$tenantId]);
         $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode($users);
         exit();
@@ -47,9 +52,10 @@ if ($method === 'DELETE') {
         exit();
     }
 
+    $tenantId = $user['tenant_id'] ?? 1;
     try {
-        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ? AND tenant_id = ?");
+        $stmt->execute([$id, $tenantId]);
         echo json_encode(['success' => true, 'message' => 'Usuario eliminado correctamente']);
         exit();
     } catch (PDOException $e) {
@@ -72,10 +78,11 @@ if (!isset($data['id']) || !isset($data['currentPassword'])) {
     exit();
 }
 
+$tenantId = $user['tenant_id'] ?? 1;
 try {
-    // 1. Verify User and Current Password
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$data['id']]);
+    // 1. Verify User and Current Password (scoped to own tenant)
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? AND tenant_id = ?");
+    $stmt->execute([$data['id'], $tenantId]);
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($data['currentPassword'], $user['password_hash'])) {
@@ -95,9 +102,23 @@ try {
     }
 
     // Update Email/Username
-    if (isset($data['email'])) {
+    if (isset($data['email']) && !empty(trim($data['email']))) {
+        $newEmail = trim($data['email']);
+        if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'El correo electrónico no es válido']);
+            exit();
+        }
+        // Check email not taken by another user in the same tenant
+        $emailCheck = $pdo->prepare("SELECT id FROM users WHERE email = ? AND id != ? AND tenant_id = ?");
+        $emailCheck->execute([$newEmail, $data['id'], $tenantId]);
+        if ($emailCheck->fetch()) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Ese correo ya está en uso por otro usuario']);
+            exit();
+        }
         $fields[] = "email = :email";
-        $params[':email'] = $data['email'];
+        $params[':email'] = $newEmail;
     }
 
     // Update Password (if provided and not empty)
@@ -112,15 +133,16 @@ try {
     }
 
     $params[':id'] = $data['id'];
-    $sql = "UPDATE users SET " . implode(', ', $fields) . " WHERE id = :id";
+    $sql = "UPDATE users SET " . implode(', ', $fields) . " WHERE id = :id AND tenant_id = :tenant_id";
+    $params[':tenant_id'] = $tenantId;
 
     $updateStmt = $pdo->prepare($sql);
     $updateStmt->execute($params);
 
     // 3. Return Updated User (sans password)
-    $stmt->execute([$data['id']]);
-    $updatedUser = $stmt->fetch();
-    unset($updatedUser['password_hash']);
+    $fetchStmt = $pdo->prepare("SELECT id, name, email, role, tenant_id, created_at FROM users WHERE id = ? AND tenant_id = ?");
+    $fetchStmt->execute([$data['id'], $tenantId]);
+    $updatedUser = $fetchStmt->fetch();
 
     echo json_encode([
         'success' => true,

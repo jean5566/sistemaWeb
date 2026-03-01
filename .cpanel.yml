@@ -1,0 +1,17 @@
+# Deploy automático de cPanel Git Version Control
+# IMPORTANTE: Reemplaza TU_USUARIO_CPANEL con tu usuario real de cPanel
+# Lo encuentras en cPanel > File Manager (la ruta es /home/TU_USUARIO_CPANEL/)
+---
+deployment:
+  tasks:
+    # Variables de entorno
+    - export DEPLOYPATH=/home/TU_USUARIO_CPANEL/public_html
+
+    # Deploy del backend PHP
+    - /bin/cp -R public/api $DEPLOYPATH/api
+
+    # Deploy del .htaccess del public_html (manejo de rutas React)
+    - /bin/cp public/.htaccess $DEPLOYPATH/.htaccess
+
+    # Deploy del frontend React (build)
+    - /bin/cp -R dist/. $DEPLOYPATH/

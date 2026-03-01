@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
-import { useCategories } from '../hooks/useCategories';
 import { useCompanyData } from '../hooks/useCompanyData';
-import { Plus, Trash2, Tag, Loader2, Building2, Banknote, Percent, Save, Settings as SettingsIcon, Lock, ShieldCheck, Eye, EyeOff, Users } from 'lucide-react';
+import { Plus, Trash2, Loader2, Building2, Banknote, Percent, Save, Settings as SettingsIcon, Lock, ShieldCheck, Eye, EyeOff, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/http';
 import toast from 'react-hot-toast';
 
-type TabType = 'empresa' | 'categorias' | 'finanzas' | 'seguridad' | 'cajeros' | 'sri';
+type TabType = 'empresa' | 'finanzas' | 'seguridad' | 'cajeros' | 'sri';
 
 export default function Settings() {
-    // Categories Hook
-    const { categories, addCategory, removeCategory, loading: loadingCats } = useCategories();
     // Company Data Hook
     const { companyData, updateCompanyData, loading: loadingCompany } = useCompanyData();
 
-    const { user } = useAuth();
+    const { user, updateUser } = useAuth();
     const [activeTab, setActiveTab] = useState<TabType>('empresa');
 
     // SRI Status State
@@ -51,10 +48,6 @@ export default function Settings() {
         confirm: false
     });
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-
-    // Category local state
-    const [newCategory, setNewCategory] = useState('');
-    const [isSubmittingCat, setIsSubmittingCat] = useState(false);
 
     // Company local state
     const [companyForm, setCompanyForm] = useState(companyData);
@@ -131,22 +124,9 @@ export default function Settings() {
         }
     };
 
-    const handleAddCategory = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newCategory.trim()) return;
-        setIsSubmittingCat(true);
-        try {
-            await addCategory(newCategory.trim());
-            setNewCategory('');
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setIsSubmittingCat(false);
-        }
-    };
 
-    const handleCompanySubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+
+    const saveCompanyData = async () => {
         setIsSavingCompany(true);
         try {
             await updateCompanyData(companyForm);
@@ -155,6 +135,11 @@ export default function Settings() {
         } finally {
             setIsSavingCompany(false);
         }
+    };
+
+    const handleCompanySubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        await saveCompanyData();
     };
 
     const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -172,38 +157,46 @@ export default function Settings() {
         }
     };
 
-    const handleCategoryDelete = async (id: string | number) => {
-        if (window.confirm('¿Estás seguro de eliminar esta categoría?')) {
-            await removeCategory(id);
-        }
-    };
 
     const handlePasswordUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (passwords.new !== passwords.confirm) {
-            toast.error('Las contraseñas no coinciden');
-            return;
-        }
+        const changingPassword = passwords.new.length > 0 || passwords.confirm.length > 0;
 
-        if (passwords.new.length < 6) {
-            toast.error('La nueva contraseña debe tener al menos 6 caracteres');
-            return;
+        if (changingPassword) {
+            if (passwords.new !== passwords.confirm) {
+                toast.error('Las contraseñas no coinciden');
+                return;
+            }
+            if (passwords.new.length < 6) {
+                toast.error('La nueva contraseña debe tener al menos 6 caracteres');
+                return;
+            }
         }
 
         setIsUpdatingPassword(true);
         try {
-            const response = await api.put<any>('/users.php', {
+            const payload: any = {
                 id: user?.id,
                 currentPassword: passwords.current,
-                newPassword: passwords.new
-            });
+                name: profile.name,
+                email: profile.email,
+            };
+            if (changingPassword) {
+                payload.newPassword = passwords.new;
+            }
+
+            const response = await api.put<any>('/users.php', payload);
 
             if (response.success) {
-                toast.success('Contraseña actualizada correctamente');
+                toast.success(changingPassword ? 'Perfil y contraseña actualizados' : 'Perfil actualizado correctamente');
                 setPasswords({ current: '', new: '', confirm: '' });
+                if (response.user) {
+                    updateUser(response.user);
+                    setProfile({ name: response.user.name || '', email: response.user.email || '' });
+                }
             } else {
-                toast.error(response.error || 'Error al actualizar contraseña');
+                toast.error(response.error || 'Error al actualizar');
             }
         } catch (error: any) {
             console.error(error);
@@ -241,45 +234,40 @@ export default function Settings() {
             <div className="flex flex-row gap-2 p-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl w-full sm:w-fit border border-gray-100 dark:border-gray-700 overflow-x-auto scrollbar-hide">
                 <button
                     onClick={() => setActiveTab('empresa')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'empresa' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    className={`flex items-center gap-1.5 px-3 py-3 sm:px-4 rounded-xl text-[12px] sm:text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'empresa' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 >
-                    <Building2 size={18} />
-                    Datos de Empresa
-                </button>
-                <button
-                    onClick={() => setActiveTab('categorias')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'categorias' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-                >
-                    <Tag size={18} />
-                    Categorías
+                    <Building2 size={16} />
+                    <span className="hidden xs:inline sm:inline">Datos de Empresa</span>
+                    <span className="sm:hidden">Empresa</span>
                 </button>
                 <button
                     onClick={() => setActiveTab('finanzas')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'finanzas' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    className={`flex items-center gap-1.5 px-3 py-3 sm:px-4 rounded-xl text-[12px] sm:text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'finanzas' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 >
-                    <Banknote size={18} />
-                    Moneda e Impuestos
+                    <Banknote size={16} />
+                    <span className="hidden sm:inline">Moneda e Impuestos</span>
+                    <span className="sm:hidden">Finanzas</span>
                 </button>
                 <button
                     onClick={() => setActiveTab('sri')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'sri' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    className={`flex items-center gap-1.5 px-3 py-3 sm:px-4 rounded-xl text-[12px] sm:text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'sri' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 >
-                    <ShieldCheck size={18} />
-                    Facturación SRI
+                    <ShieldCheck size={16} />
+                    SRI
                 </button>
                 <button
                     onClick={() => setActiveTab('seguridad')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'seguridad' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    className={`flex items-center gap-1.5 px-3 py-3 sm:px-4 rounded-xl text-[12px] sm:text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'seguridad' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 >
-                    <Lock size={18} />
+                    <Lock size={16} />
                     Seguridad
                 </button>
                 {user?.role === 'admin' && (
                     <button
                         onClick={() => setActiveTab('cajeros')}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'cajeros' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                        className={`flex items-center gap-1.5 px-3 py-3 sm:px-4 rounded-xl text-[12px] sm:text-[14px] font-semibold transition-all whitespace-nowrap ${activeTab === 'cajeros' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm scale-105' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                     >
-                        <Users size={18} />
+                        <Users size={16} />
                         Cajeros
                     </button>
                 )}
@@ -396,73 +384,6 @@ export default function Settings() {
                     </div>
                 )}
 
-                {/* CATEGORIES TAB */}
-                {activeTab === 'categorias' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full animate-in fade-in slide-in-from-bottom-4 duration-300">
-                        <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 h-fit">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-                                    <Plus size={20} strokeWidth={2.5} />
-                                </div>
-                                <h3 className="text-[16px] font-bold text-gray-900 dark:text-white">Nueva Categoría</h3>
-                            </div>
-                            <form onSubmit={handleAddCategory} className="space-y-4">
-                                <div>
-                                    <label className="block text-[12px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2 px-1">Nombre</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Tornillería, Llantas, etc."
-                                        value={newCategory}
-                                        onChange={(e) => setNewCategory(e.target.value)}
-                                        className="w-full text-[14px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:ring-4 focus:ring-primary/10 transition-all font-bold text-gray-800 dark:text-white outline-none"
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={isSubmittingCat || !newCategory.trim()}
-                                    className="px-6 py-2 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-50 text-[14px] tracking-widest"
-                                >
-                                    {isSubmittingCat ? <Loader2 className="animate-spin" size={20} /> : 'AGREGAR'}
-                                </button>
-                            </form>
-                        </div>
-
-                        <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 h-full flex flex-col overflow-hidden">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-[16px] font-bold text-gray-900 dark:text-white tracking-tight">Listado Central</h3>
-                                <div className="px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-[12px] font-black text-gray-500">{categories.length}</div>
-                            </div>
-                            {loadingCats ? (
-                                <div className="py-20 flex justify-center"><Loader2 className="animate-spin text-primary" size={40} /></div>
-                            ) : (
-                                <div className="flex-1 overflow-y-auto scrollbar-hide pr-1">
-                                    <div className="space-y-2">
-                                        {categories.map((cat) => (
-                                            <div key={cat.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl group border border-transparent hover:border-primary/20 transition-all">
-                                                <div className="flex items-center gap-3">
-                                                    <Tag size={16} className="text-primary opacity-50" />
-                                                    <span className="font-bold text-[14px] text-gray-700 dark:text-gray-200">{cat.name}</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleCategoryDelete(cat.id)}
-                                                    className="p-2 text-gray-300 text-[14px] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                                                >
-                                                    <Trash2 size={18} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {categories.length === 0 && (
-                                            <div className="py-20 text-center opacity-30 flex flex-col items-center">
-                                                <Tag size={48} className="mb-4" />
-                                                <p className="font-bold tracking-tight">No hay categorías registradas</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
 
                 {/* FINANCES TAB */}
                 {activeTab === 'finanzas' && (
@@ -486,7 +407,7 @@ export default function Settings() {
                                     />
                                 </div>
                                 <button
-                                    onClick={handleCompanySubmit}
+                                    onClick={saveCompanyData}
                                     disabled={isSavingCompany}
                                     className="px-6 py-2 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:brightness-110 transition-all"
                                 >
@@ -517,7 +438,7 @@ export default function Settings() {
                                     </div>
                                 </div>
                                 <button
-                                    onClick={handleCompanySubmit}
+                                    onClick={saveCompanyData}
                                     disabled={isSavingCompany}
                                     className="px-6 py-2 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:brightness-110 transition-all"
                                 >
@@ -560,10 +481,10 @@ export default function Settings() {
                                                 <label className="block text-[12px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1.5 px-1">Correo Electrónico</label>
                                                 <input
                                                     type="email"
-                                                    readOnly
+                                                    required
                                                     value={profile.email}
-                                                    className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-800/50 border-none rounded-xl font-bold text-gray-400 dark:text-gray-500 outline-none cursor-not-allowed text-[14px]"
-                                                    title="El correo no se puede cambiar"
+                                                    onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:ring-4 focus:ring-primary/10 transition-all font-bold text-gray-800 dark:text-white outline-none text-[14px]"
                                                 />
                                             </div>
                                         </div>
@@ -599,11 +520,10 @@ export default function Settings() {
                                                 <div className="relative group">
                                                     <input
                                                         type={showPasswords.new ? 'text' : 'password'}
-                                                        required
                                                         value={passwords.new}
                                                         onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
                                                         className="w-full pl-4 pr-10 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:ring-4 focus:ring-primary/10 transition-all font-bold text-gray-800 dark:text-white outline-none text-[14px]"
-                                                        placeholder="Mínimo 6 caracteres"
+                                                        placeholder="Dejar vacío para no cambiar"
                                                     />
                                                     <button
                                                         type="button"
@@ -620,7 +540,6 @@ export default function Settings() {
                                                 <div className="relative group">
                                                     <input
                                                         type={showPasswords.confirm ? 'text' : 'password'}
-                                                        required
                                                         value={passwords.confirm}
                                                         onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
                                                         className="w-full pl-4 pr-10 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:ring-4 focus:ring-primary/10 transition-all font-bold text-gray-800 dark:text-white outline-none text-[14px]"
@@ -717,38 +636,114 @@ export default function Settings() {
                                     <div className="py-20 flex justify-center"><Loader2 className="animate-spin text-primary" size={40} /></div>
                                 ) : sriStatus ? (
                                     <div className="space-y-6">
-                                        <div className={`p-4 rounded-2xl border flex items-center gap-4 transition-all ${sriStatus.firma_exists ? 'bg-emerald-50 border-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400' : 'bg-red-50 border-red-100 text-red-800 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-400'}`}>
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${sriStatus.firma_exists ? 'bg-emerald-100 dark:bg-emerald-500/20' : 'bg-red-100 dark:bg-red-500/20'}`}>
-                                                {sriStatus.firma_exists ? <ShieldCheck className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
+                                        {/* Estado general */}
+                                        <div className={`p-4 rounded-2xl border flex items-center gap-4 transition-all ${sriStatus.listo ? 'bg-emerald-50 border-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400' : 'bg-amber-50 border-amber-100 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400'}`}>
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${sriStatus.listo ? 'bg-emerald-100 dark:bg-emerald-500/20' : 'bg-amber-100 dark:bg-amber-500/20'}`}>
+                                                {sriStatus.listo ? <ShieldCheck className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
                                             </div>
                                             <div className="flex-1">
                                                 <h4 className="font-bold text-[15px] leading-tight mb-1">
-                                                    {sriStatus.firma_exists ? 'Firma Electrónica Detectada' : 'Firma Electrónica No Encontrada'}
+                                                    {sriStatus.listo ? 'Listo para Facturar' : 'Configuración Incompleta'}
                                                 </h4>
-                                                <p className="text-[12px] opacity-80 leading-snug">
-                                                    {sriStatus.firma_exists
-                                                        ? 'Su certificado digital está cargado y habilitado para la emisión de comprobantes.'
-                                                        : `No se detectó el certificado .p12 en la ruta configurada.`}
-                                                </p>
+                                                <div className="flex flex-col gap-0.5 mt-1">
+                                                    {[
+                                                        { ok: sriStatus.firma_exists,    label: 'Certificado .p12 en servidor' },
+                                                        { ok: sriStatus.pass_configured, label: 'Contraseña de firma configurada' },
+                                                        { ok: sriStatus.ruc_configured,  label: 'RUC del emisor configurado' },
+                                                    ].map(({ ok, label }) => (
+                                                        <span key={label} className={`text-[11px] font-bold flex items-center gap-1 ${ok ? 'opacity-80' : 'opacity-100 text-red-500 dark:text-red-400'}`}>
+                                                            <span>{ok ? '✓' : '✗'}</span> {label}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                             <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Ambiente de Trabajo</p>
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${sriStatus.environment === 'PRODUCCION' ? 'bg-amber-500 animate-pulse' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`} />
-                                                    <span className="font-bold text-gray-800 dark:text-white text-[15px] tracking-tight">{sriStatus.environment || 'DESCONOCIDO'}</span>
-                                                </div>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Ambiente de Trabajo</label>
+                                                <select
+                                                    value={companyForm.sriEnvironment || 'PRUEBAS'}
+                                                    onChange={(e) => setCompanyForm({ ...companyForm, sriEnvironment: e.target.value })}
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-primary/20 font-bold text-[14px] outline-none text-gray-800 dark:text-white"
+                                                >
+                                                    <option value="PRUEBAS">PRUEBAS</option>
+                                                    <option value="PRODUCCION">PRODUCCIÓN</option>
+                                                </select>
                                             </div>
                                             <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700">
                                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">RUC del Emisor</p>
-                                                <p className="font-bold text-gray-800 dark:text-white font-mono text-[15px] tracking-wider">{sriStatus.ruc || 'FALTA CONFIGURAR'}</p>
+                                                <p className="font-bold text-gray-800 dark:text-white font-mono text-[15px] tracking-wider">{companyForm.taxId || sriStatus.ruc || 'FALTA CONFIGURAR'}</p>
                                             </div>
                                             <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700 md:col-span-2">
-                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tipo de Régimen</p>
-                                                <p className="font-bold text-gray-800 dark:text-white text-[14px]">{sriStatus.rimpe || 'NO ESPECIFICADO'}</p>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tipo de Régimen</label>
+                                                <select
+                                                    value={companyForm.sriRegime || 'GENERAL'}
+                                                    onChange={(e) => {
+                                                        const regime = e.target.value;
+                                                        const updates: any = { sriRegime: regime };
+                                                        if (regime === 'RIMPE_NEGOCIO_POPULAR') {
+                                                            updates.taxRate = 0;
+                                                        }
+                                                        setCompanyForm({ ...companyForm, ...updates });
+                                                    }}
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-primary/20 font-bold text-[14px] outline-none text-gray-800 dark:text-white"
+                                                >
+                                                    <option value="GENERAL">Régimen General</option>
+                                                    <option value="RIMPE_NEGOCIO_POPULAR">RIMPE - Negocio Popular</option>
+                                                    <option value="RIMPE_EMPRENDEDOR">RIMPE - Emprendedor</option>
+                                                </select>
+                                                {companyForm.sriRegime === 'RIMPE_NEGOCIO_POPULAR' && (
+                                                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold mt-1.5 flex items-center gap-1">
+                                                        ⚠ IVA establecido en 0% automáticamente (Negocio Popular no cobra IVA)
+                                                    </p>
+                                                )}
                                             </div>
+                                            <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Establecimiento (3 dígitos)</label>
+                                                <input
+                                                    type="text"
+                                                    maxLength={3}
+                                                    value={companyForm.sriEstablecimiento || '001'}
+                                                    onChange={(e) => setCompanyForm({ ...companyForm, sriEstablecimiento: e.target.value.replace(/\D/g, '').padStart(Math.min(e.target.value.replace(/\D/g, '').length, 3), '0') })}
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-primary/20 font-mono font-bold text-[14px] outline-none text-gray-800 dark:text-white"
+                                                    placeholder="001"
+                                                />
+                                            </div>
+                                            <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Punto de Emisión (3 dígitos)</label>
+                                                <input
+                                                    type="text"
+                                                    maxLength={3}
+                                                    value={companyForm.sriPuntoEmision || '001'}
+                                                    onChange={(e) => setCompanyForm({ ...companyForm, sriPuntoEmision: e.target.value.replace(/\D/g, '').padStart(Math.min(e.target.value.replace(/\D/g, '').length, 3), '0') })}
+                                                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-primary/20 font-mono font-bold text-[14px] outline-none text-gray-800 dark:text-white"
+                                                    placeholder="001"
+                                                />
+                                            </div>
+                                            <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-100 dark:border-gray-700 md:col-span-2 flex items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    id="accounting_obligated"
+                                                    checked={!!companyForm.accountingObligated}
+                                                    onChange={(e) => setCompanyForm({ ...companyForm, accountingObligated: e.target.checked })}
+                                                    className="w-4 h-4 accent-primary rounded"
+                                                />
+                                                <label htmlFor="accounting_obligated" className="text-[13px] font-bold text-gray-700 dark:text-gray-300 cursor-pointer">
+                                                    Obligado a llevar contabilidad
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-end pt-2">
+                                            <button
+                                                onClick={saveCompanyData}
+                                                disabled={isSavingCompany}
+                                                className="px-6 py-2 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-2"
+                                            >
+                                                {isSavingCompany ? <Loader2 className="animate-spin w-4 h-4" /> : <Save className="w-4 h-4" />}
+                                                Guardar Configuración SRI
+                                            </button>
                                         </div>
                                     </div>
                                 ) : (

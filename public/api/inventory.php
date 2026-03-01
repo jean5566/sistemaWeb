@@ -4,15 +4,17 @@ require_once 'cors.php';
 require_once 'auth_middleware.php';
 require_once 'config.php';
 
-$user = authenticate();
-
+$user = null;
+if ($_SERVER['REQUEST_METHOD'] !== 'OPTIONS') {
+    $user = authenticate();
+}
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        getProducts($pdo);
+        getProducts($pdo, $user);
         break;
     case 'POST':
         if ($user['role'] !== 'admin') {
@@ -20,7 +22,7 @@ switch ($method) {
             echo json_encode(['error' => 'Forbidden: Admin access required']);
             exit();
         }
-        addProduct($pdo);
+        addProduct($pdo, $user);
         break;
     case 'PUT':
         if ($user['role'] !== 'admin') {
@@ -28,7 +30,7 @@ switch ($method) {
             echo json_encode(['error' => 'Forbidden: Admin access required']);
             exit();
         }
-        updateProduct($pdo);
+        updateProduct($pdo, $user);
         break;
     case 'DELETE':
         if ($user['role'] !== 'admin') {
@@ -36,7 +38,7 @@ switch ($method) {
             echo json_encode(['error' => 'Forbidden: Admin access required']);
             exit();
         }
-        deleteProduct($pdo);
+        deleteProduct($pdo, $user);
         break;
     default:
         http_response_code(405);
@@ -44,12 +46,13 @@ switch ($method) {
         break;
 }
 
-function getProducts($pdo)
+function getProducts($pdo, $user)
 {
     try {
-        // Cap at 2000 to prevent accidental full-table dumps
+        $tenantId = $user['tenant_id'] ?? 1;
         $limit = max(1, min(2000, (int)($_GET['limit'] ?? 2000)));
-        $stmt  = $pdo->prepare("SELECT * FROM products ORDER BY name ASC LIMIT :limit");
+        $stmt  = $pdo->prepare("SELECT * FROM products WHERE tenant_id = :tenant_id ORDER BY name ASC LIMIT :limit");
+        $stmt->bindValue(':tenant_id', $tenantId, PDO::PARAM_INT);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         echo json_encode($stmt->fetchAll());
@@ -58,7 +61,7 @@ function getProducts($pdo)
     }
 }
 
-function addProduct($pdo)
+function addProduct($pdo, $user)
 {
     $data = json_decode(file_get_contents("php://input"), true);
 
@@ -68,18 +71,21 @@ function addProduct($pdo)
         return;
     }
 
-    $sql = "INSERT INTO products (name, price, stock, min_stock, category, code, category_id) VALUES (:name, :price, :stock, :min_stock, :category, :code, :category_id)";
+    $tenantId = $user['tenant_id'] ?? 1;
+    $sql = "INSERT INTO products (tenant_id, name, price, stock, min_stock, category, code, category_id, image_path) VALUES (:tenant_id, :name, :price, :stock, :min_stock, :category, :code, :category_id, :image_path)";
 
     try {
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
-            ':name' => $data['name'],
-            ':price' => $data['price'],
-            ':stock' => $data['stock'] ?? 0,
-            ':min_stock' => $data['min_stock'] ?? 0,
-            ':category' => $data['category'] ?? null,
-            ':code' => $data['code'] ?? null,
-            ':category_id' => $data['category_id'] ?? null
+            ':tenant_id'  => $tenantId,
+            ':name'       => $data['name'],
+            ':price'      => $data['price'],
+            ':stock'      => $data['stock'] ?? 0,
+            ':min_stock'  => $data['min_stock'] ?? 0,
+            ':category'   => ($data['category'] ?? null) ?: null,
+            ':code'       => ($data['code'] ?? null) ?: null,
+            ':category_id'=> ($data['category_id'] ?? null) ?: null,
+            ':image_path' => ($data['image_path'] ?? null) ?: null
         ]);
 
         $id = $pdo->lastInsertId();
@@ -91,7 +97,7 @@ function addProduct($pdo)
     }
 }
 
-function updateProduct($pdo)
+function updateProduct($pdo, $user)
 {
     $data = json_decode(file_get_contents("php://input"), true);
 
@@ -103,7 +109,7 @@ function updateProduct($pdo)
 
     $fields = [];
     $params = [];
-    $allowed = ['name', 'price', 'stock', 'min_stock', 'category', 'code', 'category_id'];
+    $allowed = ['name', 'price', 'stock', 'min_stock', 'category', 'code', 'category_id', 'image_path'];
 
     foreach ($data as $key => $value) {
         if (in_array($key, $allowed)) {
@@ -118,22 +124,32 @@ function updateProduct($pdo)
         return;
     }
 
+    // Convert empty strings to NULL for nullable fields to avoid UNIQUE constraint violations
+    foreach (['code', 'category', 'category_id', 'image_path'] as $field) {
+        $key = ":$field";
+        if (array_key_exists($key, $params) && $params[$key] === '') {
+            $params[$key] = null;
+        }
+    }
+
+    $tenantId = $user['tenant_id'] ?? 1;
     $params[':id'] = $data['id'];
-    $sql = "UPDATE products SET " . implode(', ', $fields) . " WHERE id = :id";
+    $params[':tenant_id'] = $tenantId;
+    $sql = "UPDATE products SET " . implode(', ', $fields) . " WHERE id = :id AND tenant_id = :tenant_id";
 
     try {
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
 
-        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
-        $stmt->execute([$data['id']]);
+        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ? AND tenant_id = ?");
+        $stmt->execute([$data['id'], $tenantId]);
         echo json_encode($stmt->fetch());
     } catch (PDOException $e) {
         api_error('Error al actualizar producto', $e);
     }
 }
 
-function deleteProduct($pdo)
+function deleteProduct($pdo, $user)
 {
     $id = $_GET['id'] ?? null;
     if (!$id) {
@@ -147,9 +163,10 @@ function deleteProduct($pdo)
         return;
     }
 
+    $tenantId = $user['tenant_id'] ?? 1;
     try {
-        $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = $pdo->prepare("DELETE FROM products WHERE id = ? AND tenant_id = ?");
+        $stmt->execute([$id, $tenantId]);
         echo json_encode(['message' => 'Product deleted']);
     } catch (PDOException $e) {
         api_error('Error al eliminar producto', $e);

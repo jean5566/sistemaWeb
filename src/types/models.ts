@@ -36,6 +36,7 @@ export interface Product {
     min_stock: number;
     code?: string;
     image?: string;
+    image_path?: string;
     category_id?: string | number;
     created_at?: string;
 }
@@ -80,7 +81,10 @@ export interface Sale {
     payment_method?: string;
     document_type?: string;
     customers?: Customer; // For the joined data
+    subtotal?: number;
+    tax_amount?: number;
     // SRI Fields
+    sri_secuencial?: number;
     sri_access_key?: string;
     sri_status?: string;
     sri_auth_date?: string;

@@ -4,6 +4,7 @@ require_once 'auth_middleware.php';
 require_once 'config.php';
 
 $user = authenticate();
+require_admin($user);
 
 header('Content-Type: application/json');
 
@@ -12,20 +13,30 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
+// Require confirmation token to prevent accidental resets
+$data = json_decode(file_get_contents("php://input"), true);
+if (($data['confirm'] ?? '') !== 'RESET_CONFIRMADO') {
+    http_response_code(400);
+    echo json_encode(['error' => 'Se requiere confirmación explícita: {"confirm":"RESET_CONFIRMADO"}']);
+    exit();
+}
+
+$tenantId = $user['tenant_id'] ?? 1;
+
 try {
     $pdo->beginTransaction();
 
-    // Order matters due to Foreign Keys
-    $pdo->exec("DELETE FROM sale_items");
-    $pdo->exec("DELETE FROM sales");
-    $pdo->exec("DELETE FROM products");
-    $pdo->exec("DELETE FROM customers");
-    $pdo->exec("DELETE FROM categories");
-    // Optional: Keep company settings?
-    // $pdo->exec("DELETE FROM company_settings");
+    // Only delete data belonging to the current tenant
+    $pdo->prepare("DELETE si FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.tenant_id = ?")->execute([$tenantId]);
+    $pdo->prepare("DELETE FROM sales WHERE tenant_id = ?")->execute([$tenantId]);
+    $pdo->prepare("DELETE FROM products WHERE tenant_id = ?")->execute([$tenantId]);
+    $pdo->prepare("DELETE FROM customers WHERE tenant_id = ?")->execute([$tenantId]);
+    $pdo->prepare("DELETE FROM categories WHERE tenant_id = ?")->execute([$tenantId]);
 
     $pdo->commit();
-    echo json_encode(['message' => 'System reset successful']);
+
+    error_log("[RESET] tenant_id=$tenantId borrado por user_id={$user['id']} email={$user['email']}");
+    echo json_encode(['message' => 'Reset del sistema exitoso']);
 } catch (PDOException $e) {
     $pdo->rollBack();
     api_error('Error al resetear el sistema', $e);

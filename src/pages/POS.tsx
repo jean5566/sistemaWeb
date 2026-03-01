@@ -63,7 +63,7 @@ export default function POS() {
     const handleFinalizeCheckout = async ({ customer, type, finalTotal }: { customer: any, type: string, finalTotal: number }) => {
         try {
             // customer is the full customer object selected in modal
-            const customerId = customer?.id;
+            const customerId = customer?.id ?? null;
             const docType = type || 'boleta';
 
             const saleId = await registerSale(cart, finalTotal, pendingPaymentMethod, customerId, docType);
@@ -106,7 +106,7 @@ export default function POS() {
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id)}
-                                className={`px-7 py-2.5 rounded-[18px] text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-300 whitespace-nowrap ${selectedCategory === cat.id
+                                className={`px-4 py-2 sm:px-7 sm:py-2.5 rounded-[18px] text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-300 whitespace-nowrap ${selectedCategory === cat.id
                                     ? 'bg-primary text-white z-10'
                                     : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
                                     }`}
@@ -118,7 +118,7 @@ export default function POS() {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 pt-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-4 pb-24">
+                    <div className="flex flex-col gap-3 pb-24">
                         {filteredProducts.map(product => {
                             const categoryName = categories.find(c => String(c.id) === String(product.category_id || product.category))?.name || product.category || 'General';
                             const isInCart = cart.some(item => String(item.id) === String(product.id));
@@ -133,7 +133,7 @@ export default function POS() {
                             );
                         })}
                         {filteredProducts.length === 0 && (
-                            <div className="col-span-full flex flex-col items-center justify-center p-20 text-gray-400">
+                            <div className="flex flex-col items-center justify-center p-20 text-gray-400">
                                 <Search size={48} className="mb-4 opacity-50" />
                                 <p className="text-xl font-medium">No se encontraron productos</p>
                             </div>

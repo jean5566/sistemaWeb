@@ -8,6 +8,7 @@ interface AuthContextType {
     signIn: (email: string, password: string) => Promise<User | undefined>;
     signUp: (email: string, password: string) => Promise<User | undefined>;
     signOut: () => Promise<void>;
+    updateUser: (updated: Partial<User>) => void;
     checkSystemInitialization: () => Promise<boolean>;
 }
 
@@ -51,6 +52,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
                 localStorage.setItem('pos_user', JSON.stringify(data.user));
                 if (data.token) {
                     localStorage.setItem('pos_token', data.token);
+                    // Force a settings reload now that we have a valid token
+                    window.dispatchEvent(new Event('auth:login'));
                 }
                 return data.user;
             } else {
@@ -71,6 +74,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
                 localStorage.setItem('pos_user', JSON.stringify(data.user));
                 if (data.token) {
                     localStorage.setItem('pos_token', data.token);
+                    window.dispatchEvent(new Event('auth:login'));
                 }
                 return data.user;
             }
@@ -80,10 +84,26 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
     };
 
+    const updateUser = (updated: Partial<User>) => {
+        setUser(prev => {
+            if (!prev) return prev;
+            const merged = { ...prev, ...updated };
+            localStorage.setItem('pos_user', JSON.stringify(merged));
+            return merged;
+        });
+    };
+
     const signOut = async () => {
-        setUser(null);
-        localStorage.removeItem('pos_user');
-        localStorage.removeItem('pos_token');
+        try {
+            await api.post('/logout.php', {});
+        } catch (error) {
+            // Proceed with local logout even if server revocation fails
+            console.error('Server logout failed:', error);
+        } finally {
+            setUser(null);
+            localStorage.removeItem('pos_user');
+            localStorage.removeItem('pos_token');
+        }
     };
 
     const checkSystemInitialization = async (): Promise<boolean> => {
@@ -102,6 +122,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         signIn,
         signUp,
         signOut,
+        updateUser,
         checkSystemInitialization
     };
 

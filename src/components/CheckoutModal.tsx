@@ -1,6 +1,6 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { Check, Search } from 'lucide-react';
+import { Check, Search, CheckCircle, Printer, FileText } from 'lucide-react';
 import { Modal } from './Modal';
 import { Receipt } from './Receipt';
 import { CartItem } from '../context/CartContext';
@@ -34,16 +34,30 @@ export function CheckoutModal({
     companyData,
     customers
 }: CheckoutModalProps) {
+    const [step, setStep] = useState<'checkout' | 'success'>('checkout');
     const [selectedCustomerId, setSelectedCustomerId] = useState('0');
     const [docType, setDocType] = useState('ticket');
     const [searchTerm, setSearchTerm] = useState('');
-    const [shouldPrint, setShouldPrint] = useState(true);
     const [finalCart, setFinalCart] = useState<CartItem[]>([]);
     const [committedSaleId, setCommittedSaleId] = useState<string | number | null>(null);
-
     const [finalTotals, setFinalTotals] = useState({ subtotal: 0, tax: 0, total: 0 });
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const receiptRef = useRef<HTMLDivElement>(null);
+
+    // Reset state every time the modal opens fresh
+    useEffect(() => {
+        if (isOpen) {
+            setStep('checkout');
+            setSelectedCustomerId('0');
+            setDocType('ticket');
+            setSearchTerm('');
+            setCommittedSaleId(null);
+            setFinalCart([]);
+            setFinalTotals({ subtotal: 0, tax: 0, total: 0 });
+            setIsProcessing(false);
+        }
+    }, [isOpen]);
 
     const handlePrint = useReactToPrint({
         contentRef: receiptRef,
@@ -71,172 +85,212 @@ export function CheckoutModal({
         return found ? { id: found.id, name: found.name, docId: found.cedula || '-' } : { id: null, name: 'Desconocido', docId: '-' };
     };
 
-    const handleSelectCustomer = (id: string) => {
-        setSelectedCustomerId(id);
-    };
-
-    const handleConfirm = async () => {
-        // Capture current values before clearing
-        setFinalCart([...cart]);
-        setFinalTotals({
-            subtotal: baseTotal,
-            tax: taxAmount,
-            total: finalTotal
-        });
+    const handleRegisterSale = async () => {
+        setIsProcessing(true);
+        const capturedCart = [...cart];
+        const capturedTotals = { subtotal: baseTotal, tax: taxAmount, total: finalTotal };
 
         const saleId = await onConfirm({
             customer: getCustomer(),
             type: docType,
-            paymentMethod: 'Efectivo/Tarjeta', // This is overridden by pendingPaymentMethod in parent usually, or we should pass it in? 
+            paymentMethod: 'Efectivo/Tarjeta',
             finalTotal: finalTotal
         });
 
+        setIsProcessing(false);
+
         if (saleId) {
-            if (shouldPrint) {
-                setCommittedSaleId(saleId);
-                setTimeout(() => {
-                    handlePrint();
-                }, 500);
-            } else {
-                onClose();
-            }
+            setFinalCart(capturedCart);
+            setFinalTotals(capturedTotals);
+            setCommittedSaleId(saleId);
+            setStep('success');
         }
     };
 
-    const previewSaleId = Date.now().toString().slice(-6);
-    const displaySaleId = committedSaleId || previewSaleId;
-    const previewDate = new Date().toLocaleString();
+    const displayDate = new Date().toLocaleString();
 
     return (
-        <Modal title="Confirmar Venta" isOpen={isOpen} onClose={onClose} size="large">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* LEFT COLUMN: Options */}
-                <div className="space-y-4">
-                    {/* Doc Type Selector */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest ml-1">
-                            Tipo de Comprobante
-                        </label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                onClick={() => setDocType('ticket')}
-                                className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-0.5 ${docType === 'ticket'
-                                    ? 'border-primary bg-primary/10 text-primary'
-                                    : 'border-transparent bg-gray-50 dark:bg-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
+        <Modal
+            title={step === 'checkout' ? 'Confirmar Venta' : 'Venta Registrada'}
+            isOpen={isOpen}
+            onClose={onClose}
+            size="large"
+        >
+            {/* Hidden receipt — always in DOM so react-to-print ref works */}
+            <div style={{ display: 'none' }}>
+                <Receipt
+                    ref={receiptRef}
+                    company={companyData}
+                    saleId={committedSaleId || ''}
+                    date={displayDate}
+                    customer={getCustomer()}
+                    items={finalCart}
+                    subtotal={finalTotals.subtotal}
+                    tax={finalTotals.tax}
+                    total={finalTotals.total}
+                    currency={currency}
+                    docType={docType}
+                />
+            </div>
+
+            {step === 'checkout' ? (
+                /* ── PASO 1: Formulario de venta ── */
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Columna izquierda: tipo de comprobante + cliente */}
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest ml-1">
+                                Tipo de Comprobante
+                            </label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => setDocType('ticket')}
+                                    className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-0.5 ${docType === 'ticket'
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-transparent bg-gray-50 dark:bg-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                                     }`}
-                            >
-                                <span className="text-sm font-bold">Ticket</span>
-                                <span className="text-[10px] opacity-75">Sin validez fiscal</span>
-                            </button>
-                            <button
-                                onClick={() => setDocType('factura')}
-                                className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-0.5 ${docType === 'factura'
-                                    ? 'border-primary bg-primary/10 text-primary'
-                                    : 'border-transparent bg-gray-50 dark:bg-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
+                                >
+                                    <span className="text-sm font-bold">Ticket</span>
+                                    <span className="text-[10px] opacity-75">Sin validez fiscal</span>
+                                </button>
+                                <button
+                                    onClick={() => setDocType('factura')}
+                                    className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-0.5 ${docType === 'factura'
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-transparent bg-gray-50 dark:bg-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
                                     }`}
-                            >
-                                <span className="text-sm font-bold">Factura</span>
-                                <span className="text-[10px] opacity-75">Impuesto ({taxRate}%)</span>
-                            </button>
+                                >
+                                    <span className="text-sm font-bold">Factura</span>
+                                    <span className="text-[10px] opacity-75">
+                                        {taxRate === 0 ? 'Sin IVA (RIMPE)' : `IVA (${taxRate}%)`}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest ml-1">
+                                Cliente
+                            </label>
+                            <div className="relative">
+                                <Search size={16} className="absolute top-1/2 -translate-y-1/2 left-4 text-gray-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar por nombre o cédula..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 text-gray-900 dark:text-white text-sm placeholder:text-gray-400"
+                                />
+                            </div>
+                            <div className="max-h-[220px] overflow-y-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                                <div
+                                    onClick={() => setSelectedCustomerId('0')}
+                                    className={`p-2.5 px-4 cursor-pointer border-b border-gray-50 dark:border-gray-700 flex items-center justify-between transition-colors ${selectedCustomerId === '0'
+                                        ? 'bg-primary/10'
+                                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                                    }`}
+                                >
+                                    <span className="text-sm font-bold text-gray-900 dark:text-white">Cliente General</span>
+                                    {selectedCustomerId === '0' && <Check size={16} className="text-primary" />}
+                                </div>
+                                {filteredCustomers.map(c => (
+                                    <div
+                                        key={c.id}
+                                        onClick={() => setSelectedCustomerId(c.id.toString())}
+                                        className={`p-2.5 px-4 cursor-pointer border-b border-gray-100 dark:border-gray-700 flex items-center justify-between transition-colors ${selectedCustomerId === c.id.toString()
+                                            ? 'bg-primary/10'
+                                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                                        }`}
+                                    >
+                                        <div className="text-sm font-bold text-gray-900 dark:text-white">{c.name}</div>
+                                        {selectedCustomerId === c.id.toString() && <Check size={16} className="text-primary" />}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Customer Selection */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest ml-1">
-                            Cliente
-                        </label>
-                        <div className="relative">
-                            <Search size={16} className="absolute top-1/2 -translate-y-1/2 left-4 text-gray-400" />
-                            <input
-                                type="text"
-                                placeholder="Buscar por nombre o cédula..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 text-gray-900 dark:text-white text-sm placeholder:text-gray-400"
-                            />
+                    {/* Columna derecha: totales + acción */}
+                    <div className="flex flex-col gap-4 justify-center bg-gray-50 dark:bg-gray-700/30 p-6 rounded-2xl">
+                        <div className="space-y-2 pb-4 border-b border-gray-200 dark:border-gray-600">
+                            {taxAmount > 0 && (
+                                <>
+                                    <div className="flex justify-between text-sm text-gray-400 font-bold">
+                                        <span>Subtotal</span>
+                                        <span>{currency}{baseTotal.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm text-gray-400 font-bold">
+                                        <span>IVA ({taxRate}%)</span>
+                                        <span>{currency}{taxAmount.toFixed(2)}</span>
+                                    </div>
+                                </>
+                            )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-500 font-black text-xs uppercase tracking-widest">Total a pagar</span>
+                                <span className="font-black text-2xl sm:text-3xl text-emerald-600 dark:text-emerald-400 tracking-tighter">
+                                    {currency}{finalTotal.toFixed(2)}
+                                </span>
+                            </div>
                         </div>
 
-                        <div className="max-h-[220px] overflow-y-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                            <div
-                                onClick={() => handleSelectCustomer('0')}
-                                className={`p-2.5 px-4 cursor-pointer border-b border-gray-50 dark:border-gray-700 flex items-center justify-between transition-colors ${selectedCustomerId === '0'
-                                    ? 'bg-primary/10'
-                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                                    }`}
+                        <div className="grid gap-3 mt-auto">
+                            <button
+                                onClick={handleRegisterSale}
+                                disabled={isProcessing}
+                                className="p-4 bg-primary hover:brightness-110 text-white font-black rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 text-sm transition-all active:scale-95 uppercase tracking-widest disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                                <span className="text-sm font-bold text-gray-900 dark:text-white">Cliente General</span>
-                                {selectedCustomerId === '0' && <Check size={16} className="text-primary" />}
-                            </div>
-                            {filteredCustomers.map(c => (
-                                <div
-                                    key={c.id}
-                                    onClick={() => handleSelectCustomer(c.id.toString())}
-                                    className={`p-2.5 px-4 cursor-pointer border-b border-gray-100 dark:border-gray-700 flex items-center justify-between transition-colors ${selectedCustomerId === c.id.toString()
-                                        ? 'bg-primary/10'
-                                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                                        }`}
-                                >
-                                    <div className="text-sm font-bold text-gray-900 dark:text-white">{c.name}</div>
-                                    {selectedCustomerId === c.id.toString() && <Check size={16} className="text-primary" />}
-                                </div>
-                            ))}
+                                <Check size={20} />
+                                <span>{isProcessing ? 'Procesando...' : 'Registrar Venta'}</span>
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="py-1 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                            >
+                                Cancelar operación
+                            </button>
                         </div>
                     </div>
                 </div>
-
-                {/* RIGHT COLUMN: Totals & Actions */}
-                <div className="flex flex-col gap-4 justify-center bg-gray-50 dark:bg-gray-700/30 p-6 rounded-2xl">
-                    <div className="flex justify-between items-center pb-4 border-b border-gray-200 dark:border-gray-600">
-                        <span className="text-gray-500 font-black text-xs uppercase tracking-widest">Total a pagar</span>
-                        <span className="font-black text-3xl text-emerald-600 dark:text-emerald-400 tracking-tighter">{currency}{finalTotal.toFixed(2)}</span>
+            ) : (
+                /* ── PASO 2: Venta confirmada — generar comprobante ── */
+                <div className="flex flex-col items-center gap-6 py-4 max-w-sm mx-auto">
+                    {/* Indicador de éxito */}
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-500/10 rounded-full flex items-center justify-center">
+                            <CheckCircle size={48} className="text-emerald-500" strokeWidth={1.5} />
+                        </div>
+                        <div className="text-center">
+                            <p className="text-2xl font-black text-gray-900 dark:text-white">¡Venta Registrada!</p>
+                            <p className="text-sm text-gray-400 font-bold mt-1">
+                                Venta #{committedSaleId} &middot; {getCustomer().name}
+                            </p>
+                        </div>
                     </div>
 
-                    <label className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm cursor-pointer select-none">
-                        <input
-                            type="checkbox"
-                            checked={shouldPrint}
-                            onChange={(e) => setShouldPrint(e.target.checked)}
-                            className="w-4 h-4 text-primary rounded focus:ring-primary/20 accent-primary"
-                        />
-                        <span className="font-bold text-xs text-gray-700 dark:text-gray-200">
-                            Imprimir comprobante
-                        </span>
-                    </label>
+                    <div className="w-full border-t border-gray-100 dark:border-gray-700" />
 
-                    <div className="grid gap-3 mt-auto">
+                    {/* Opciones de comprobante */}
+                    <div className="w-full space-y-3">
+                        <p className="text-xs font-black text-gray-400 uppercase tracking-widest text-center">
+                            ¿Generar comprobante?
+                        </p>
                         <button
-                            onClick={handleConfirm}
-                            className="p-4 bg-primary hover:brightness-110 text-white font-black rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 text-sm transition-all active:scale-95 uppercase tracking-widest"
+                            onClick={() => handlePrint()}
+                            className="w-full flex items-center justify-center gap-3 p-4 bg-primary text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-primary/20 hover:brightness-110 transition-all active:scale-95"
                         >
-                            <Check size={20} /> <span>Confirmar Venta</span>
+                            <Printer size={18} />
+                            <span>Imprimir {docType === 'factura' ? 'Factura' : 'Ticket'}</span>
                         </button>
                         <button
                             onClick={onClose}
-                            className="py-1 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                            className="w-full flex items-center justify-center gap-3 p-4 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-200 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95"
                         >
-                            Cancelar operación
+                            <FileText size={18} />
+                            <span>Sin comprobante</span>
                         </button>
                     </div>
                 </div>
-
-                {/* Hidden receipt for printing only */}
-                <div style={{ display: 'none' }}>
-                    <Receipt
-                        ref={receiptRef}
-                        company={companyData}
-                        saleId={displaySaleId}
-                        date={previewDate}
-                        customer={getCustomer()}
-                        items={finalCart.length > 0 ? finalCart : cart}
-                        subtotal={finalTotals.subtotal || baseTotal}
-                        tax={finalTotals.tax || taxAmount}
-                        total={finalTotals.total || finalTotal}
-                        currency={currency}
-                        docType={docType}
-                    />
-                </div>
-            </div>
+            )}
         </Modal>
     );
 }

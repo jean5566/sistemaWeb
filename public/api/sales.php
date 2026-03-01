@@ -1,14 +1,18 @@
 <?php
 require_once 'cors.php';
-require_once 'auth_middleware.php';
 require_once 'config.php';
+require_once 'auth_middleware.php';
 
-$user = authenticate();
+$caller = null;
+if ($_SERVER['REQUEST_METHOD'] !== 'OPTIONS') {
+    $caller = require_auth();
+}
+$tid = $caller ? (int) $caller['tenant_id'] : 1;
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    getSales($pdo);
+    getSales($pdo, $tid);
     exit();
 }
 
@@ -35,8 +39,12 @@ try {
     // 1. Load real prices and stock from DB — never trust client-sent prices
     $productIds   = array_map('intval', array_column($data['items'], 'product_id'));
     $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-    $productStmt  = $pdo->prepare("SELECT id, name, price, stock FROM products WHERE id IN ($placeholders)");
-    $productStmt->execute($productIds);
+    $productStmt  = $pdo->prepare("SELECT id, name, price, stock FROM products WHERE id IN ($placeholders) AND tenant_id = ?");
+    
+    $productParams = $productIds;
+    $productParams[] = $tid;
+    $productStmt->execute($productParams);
+    
     $productsMap  = [];
     foreach ($productStmt->fetchAll() as $p) {
         $productsMap[(int)$p['id']] = $p;
@@ -47,14 +55,16 @@ try {
         if (!isset($productsMap[(int)$item['product_id']])) {
             $pdo->rollBack();
             http_response_code(400);
-            echo json_encode(['error' => "Producto #" . (int)$item['product_id'] . " no encontrado"]);
+            echo json_encode(['error' => "Producto #" . (int)$item['product_id'] . " no encontrado en el inventario de esta empresa"]);
             exit();
         }
     }
 
     // 2. Fetch tax rate from DB — never trust client-sent tax rate
-    $taxRateRow = $pdo->query("SELECT tax_rate FROM company_settings LIMIT 1")->fetch();
-    $taxRate    = $taxRateRow ? (float)$taxRateRow['tax_rate'] : 0;
+    $taxRateStmt = $pdo->prepare("SELECT tax_rate FROM company_settings WHERE tenant_id = :tid LIMIT 1");
+    $taxRateStmt->execute([':tid' => $tid]);
+    $taxRateRow  = $taxRateStmt->fetch();
+    $taxRate     = $taxRateRow ? (float)$taxRateRow['tax_rate'] : 0;
 
     // 3. Calculate server-side subtotal and total
     $serverSubtotal = 0;
@@ -74,11 +84,14 @@ try {
     $serverTotal = round($serverSubtotal + $taxAmount, 2);
 
     // 4. Create Sale Record using server-calculated total
-    $sql  = "INSERT INTO sales (customer_id, total, payment_method, document_type) VALUES (:customer_id, :total, :payment_method, :document_type)";
+    $sql  = "INSERT INTO sales (tenant_id, customer_id, total, subtotal, tax_amount, payment_method, document_type) VALUES (:tenant_id, :customer_id, :total, :subtotal, :tax_amount, :payment_method, :document_type)";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
+        ':tenant_id'      => $tid,
         ':customer_id'    => $data['customer_id'] ?? null,
         ':total'          => $serverTotal,
+        ':subtotal'       => $serverSubtotal,
+        ':tax_amount'     => $taxAmount,
         ':payment_method' => $data['payment_method'] ?? 'cash',
         ':document_type'  => $documentType
     ]);
@@ -86,12 +99,12 @@ try {
     $saleId = $pdo->lastInsertId();
 
     // 5. Process Items using real DB prices
-    $itemSql  = "INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (:sale_id, :product_id, :quantity, :unit_price)";
+    $itemSql  = "INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, tax_rate, discount) VALUES (:sale_id, :product_id, :product_name, :quantity, :unit_price, :tax_rate, :discount)";
     $itemStmt = $pdo->prepare($itemSql);
 
     // Atomic stock deduction — WHERE stock >= :quantity_check prevents race conditions
     $stockSql  = "UPDATE products SET stock = stock - :quantity
-                  WHERE id = :product_id AND stock >= :quantity_check";
+                  WHERE id = :product_id AND tenant_id = :tid AND stock >= :quantity_check";
     $stockStmt = $pdo->prepare($stockSql);
 
     foreach ($data['items'] as $item) {
@@ -111,18 +124,22 @@ try {
             exit();
         }
 
-        // Insert sale item with real DB price
+        // Insert sale item with real DB price and frozen product name
         $itemStmt->execute([
-            ':sale_id'    => $saleId,
-            ':product_id' => $productId,
-            ':quantity'   => $quantity,
-            ':unit_price' => $realPrice
+            ':sale_id'      => $saleId,
+            ':product_id'   => $productId,
+            ':product_name' => $productName,
+            ':quantity'     => $quantity,
+            ':unit_price'   => $realPrice,
+            ':tax_rate'     => $taxRate,
+            ':discount'     => 0
         ]);
 
         // Atomic stock deduction
         $stockStmt->execute([
             ':quantity'       => $quantity,
             ':product_id'     => $productId,
+            ':tid'            => $tid,
             ':quantity_check' => $quantity
         ]);
 
@@ -139,106 +156,23 @@ try {
 
     $pdo->commit();
 
-    // --- SRI INTEGRATION START ---
-    try {
-        // A. Fetch Full Sale Data
-        $stmtSale = $pdo->prepare("
-            SELECT s.*, c.name, c.document_id, c.email, c.phone 
-            FROM sales s 
-            LEFT JOIN customers c ON s.customer_id = c.id 
-            WHERE s.id = :id
-        ");
-        $stmtSale->execute([':id' => $saleId]);
-        $saleData = $stmtSale->fetch(PDO::FETCH_ASSOC);
-
-        $stmtItems = $pdo->prepare("
-            SELECT si.*, p.name as product_name
-            FROM sale_items si
-            JOIN products p ON si.product_id = p.id
-            WHERE si.sale_id = :sale_id
-        ");
-        $stmtItems->execute([':sale_id' => $saleId]);
-        $itemsData = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
-
-        // B. Prepare Customer Data
-        $customerData = [
-            'name' => $saleData['name'] ?? 'CONSUMIDOR FINAL',
-            'document_id' => $saleData['document_id'] ?? '9999999999999',
-            'email' => $saleData['email'] ?? '',
-            'phone' => $saleData['phone'] ?? ''
-        ];
-
-        // C. Call SRI Service
-        require_once __DIR__ . '/classes/SriService.php';
-
-        // Fetch Company Data for XML
-        $stmtCompany = $pdo->query("SELECT * FROM company_settings LIMIT 1");
-        $companySettings = $stmtCompany->fetch(PDO::FETCH_ASSOC);
-
-        // SRI Configuration from Environment
-        $envSri = $_ENV['SRI_ENV'] ?? getenv('SRI_ENV') ?: 1;
-        $pathFirma = $_ENV['SRI_FIRMA_PATH'] ?? getenv('SRI_FIRMA_PATH') ?: __DIR__ . '/../../firma.p12';
-        $passFirma = $_ENV['SRI_FIRMA_PASS'] ?? getenv('SRI_FIRMA_PASS') ?: 'TuClaveDeFirma';
-
-        $sri = new SriService($envSri, $pathFirma, $passFirma);
-        $result = $sri->procesarVenta($saleData, $itemsData, $customerData, $companySettings);
-
-        // D. Update Database with SRI Result
-        $status = ($result['status'] === 'SUCCESS') ? 'AUTHORIZED' : 'REJECTED';
-        $authDate = null;
-        $mensaje = null;
-
-        if ($status === 'AUTHORIZED') {
-            // Extract Auth Date from standard SRI response structure
-            // Response is object -> autorizaciones -> autorizacion -> fechaAutorizacion
-            if (isset($result['autorizacion']->autorizaciones->autorizacion)) {
-                $auth = $result['autorizacion']->autorizaciones->autorizacion;
-                if (is_array($auth))
-                    $auth = $auth[0]; // Handle array case
-                $authDate = $auth->fechaAutorizacion ?? date('Y-m-d H:i:s');
-            }
-        } else {
-            // Handle error messages
-            $mensaje = json_encode($result['mensaje'] ?? 'Unknown Error');
-        }
-
-        $updateSql = "UPDATE sales SET sri_access_key = :key, sri_status = :status, sri_auth_date = :date, sri_xml = :xml, sri_message = :msg WHERE id = :id";
-        $updateStmt = $pdo->prepare($updateSql);
-        $updateStmt->execute([
-            ':key' => $result['clave_acceso'] ?? null,
-            ':status' => $status,
-            ':date' => $authDate,
-            ':xml' => $result['xml_signed'] ?? null,
-            ':msg' => $mensaje,
-            ':id' => $saleId
-        ]);
-
-        echo json_encode([
-            'id'      => $saleId,
-            'total'   => $serverTotal,
-            'message' => 'Sale processed successfully',
-            'sri'     => $result
-        ]);
-
-    } catch (Exception $eSri) {
-        // If SRI fails, we still return success for the SALE, but error for SRI
-        // The sale is already committed.
-        error_log('[SRI ERROR] sale_id=' . $saleId . ' - ' . $eSri->getMessage());
-        echo json_encode([
-            'id'        => $saleId,
-            'total'     => $serverTotal,
-            'message'   => 'Venta guardada, pero falló la integración con el SRI',
-            'sri_error' => 'Error de comunicación con el SRI'
-        ]);
-    }
-    // --- SRI INTEGRATION END ---
+    // SRI Integration removed from sale creation.
+    // It will be done manually from the Facturas section.
+    echo json_encode([
+        'id'      => $saleId,
+        'total'   => $serverTotal,
+        'message' => 'Sale processed successfully',
+        'document_type' => $documentType
+    ]);
 
 } catch (Exception $e) {
-    $pdo->rollBack();
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     api_error('Error al procesar la venta', $e);
 }
 
-function getSales($pdo)
+function getSales($pdo, $tid)
 {
     try {
         $limit  = max(1, min(200, (int)($_GET['limit'] ?? 50)));
@@ -246,13 +180,30 @@ function getSales($pdo)
         $offset = ($page - 1) * $limit;
         $search = trim($_GET['search'] ?? '');
 
-        $whereClause = '';
-        $params      = [];
+        $whereClause = "WHERE s.tenant_id = :tid";
+        $params      = [':tid' => $tid];
 
         if ($search !== '') {
-            $whereClause = "WHERE c.name LIKE :search OR CAST(s.id AS CHAR) = :id";
+            $whereClause .= " AND (c.name LIKE :search OR CAST(s.id AS CHAR) = :id)";
             $params[':search'] = '%' . $search . '%';
             $params[':id']     = $search;
+        }
+
+        $docType = trim($_GET['document_type'] ?? '');
+        if ($docType !== '') {
+            $whereClause .= " AND s.document_type = :doc_type";
+            $params[':doc_type'] = $docType;
+        }
+
+        $dateFrom = trim($_GET['date_from'] ?? '');
+        $dateTo   = trim($_GET['date_to'] ?? '');
+        if ($dateFrom !== '') {
+            $whereClause .= " AND DATE(s.created_at) >= :date_from";
+            $params[':date_from'] = $dateFrom;
+        }
+        if ($dateTo !== '') {
+            $whereClause .= " AND DATE(s.created_at) <= :date_to";
+            $params[':date_to'] = $dateTo;
         }
 
         // Total count for pagination metadata
@@ -292,7 +243,8 @@ function getSales($pdo)
         $saleIds      = array_column($sales, 'id');
         $placeholders = implode(',', array_fill(0, count($saleIds), '?'));
         $itemStmt     = $pdo->prepare("
-            SELECT si.sale_id, si.quantity, si.unit_price, p.name as product_name
+            SELECT si.sale_id, si.quantity, si.unit_price, si.discount,
+                   COALESCE(NULLIF(si.product_name,''), p.name) as product_name
             FROM sale_items si
             LEFT JOIN products p ON si.product_id = p.id
             WHERE si.sale_id IN ($placeholders)
@@ -304,6 +256,7 @@ function getSales($pdo)
             $itemsBySale[$row['sale_id']][] = [
                 'quantity'     => $row['quantity'],
                 'unit_price'   => $row['unit_price'],
+                'discount'     => $row['discount'],
                 'product_name' => $row['product_name']
             ];
         }

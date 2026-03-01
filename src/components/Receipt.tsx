@@ -38,6 +38,7 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
     customer,
     items,
     subtotal,
+    tax,
     total,
     currency,
     docType = 'ticket', // 'ticket' or 'factura'
@@ -209,8 +210,8 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({
                                 <span>{currency || '$'}{subtotal.toFixed(2)}</span>
                             </div>
                             <div className="row">
-                                <span>Impuestos (0%):</span>
-                                <span>{currency || '$'}0.00</span>
+                                <span>Impuestos:</span>
+                                <span>{currency || '$'}{(tax ?? 0).toFixed(2)}</span>
                             </div>
                         </>
                     )}

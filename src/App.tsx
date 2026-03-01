@@ -14,6 +14,7 @@ import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
 import Customers from './pages/Customers';
 import SalesHistory from './pages/SalesHistory';
+import Facturas from './pages/Facturas';
 import Settings from './pages/Settings';
 
 
@@ -94,6 +95,14 @@ function App() {
                 </ProtectedRoute>
               }>
                 <Route index element={<SalesHistory />} />
+              </Route>
+
+              <Route path="/facturas" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Facturas />} />
               </Route>
 
               <Route path="/settings" element={

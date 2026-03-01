@@ -13,9 +13,28 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+
+# dist se incluye en el repo para deploy en cPanel sin necesitar Node.js
+# Si usas CI/CD con Node en el servidor, descomenta la siguiente línea:
+# dist
+
+# Archivos que no deben estar en dist/
+dist/api/
+dist/*.zip
+
 dist-ssr
 *.local
+
+# PHP dependencies (se instalan en el servidor con composer install)
+vendor/
+composer.lock
+
+# Firma digital SRI (NUNCA al repositorio)
+*.p12
+*.pfx
+
+# Claude Code (configuración local del IDE)
+.claude/
 
 # Editor directories and files
 .vscode/*

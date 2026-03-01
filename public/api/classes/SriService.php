@@ -109,10 +109,11 @@ class SriService
         // Clave Acceso Generation
         $fechaEmision = date('dmY'); // ddmmyyyy
         $tipoComprobante = '01'; // Factura
-        // RUC used above
-        $serie = '001001'; // TODO: DB Logic for series/points of emission
-        $secuencial = str_pad($sale['id'], 9, '0', STR_PAD_LEFT);
-        $codigoNumerico = '12345678'; // Random or static
+        $estab   = str_pad($company['sri_establecimiento'] ?? '001', 3, '0', STR_PAD_LEFT);
+        $ptoEmi  = str_pad($company['sri_punto_emision']   ?? '001', 3, '0', STR_PAD_LEFT);
+        $serie   = $estab . $ptoEmi;
+        $secuencial = str_pad($sale['sri_secuencial'] ?? $sale['id'], 9, '0', STR_PAD_LEFT);
+        $codigoNumerico = str_pad((string)random_int(0, 99999999), 8, '0', STR_PAD_LEFT);
 
         $claveAcceso = $this->generarClaveAcceso($fechaEmision, $tipoComprobante, $ruc, $this->ambiente, $serie, $secuencial, $codigoNumerico, $this->tipoEmision);
 
@@ -123,8 +124,13 @@ class SriService
         $infoTributaria->appendChild($dom->createElement('secuencial', $secuencial));
         $infoTributaria->appendChild($dom->createElement('dirMatriz', substr($dirMatriz, 0, 300)));
 
-        // RIMPE FIELD
-        $infoTributaria->appendChild($dom->createElement('contribuyenteRimpe', 'CONTRIBUYENTE RÉGIMEN RIMPE'));
+        // RIMPE FIELD — solo para contribuyentes RIMPE
+        $regime = strtoupper($company['sri_regime'] ?? 'GENERAL');
+        if ($regime === 'RIMPE_NEGOCIO_POPULAR') {
+            $infoTributaria->appendChild($dom->createElement('contribuyenteRimpe', 'CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE'));
+        } elseif ($regime === 'RIMPE_EMPRENDEDOR') {
+            $infoTributaria->appendChild($dom->createElement('contribuyenteRimpe', 'EMPRENDEDOR - RÉGIMEN RIMPE'));
+        }
 
         $factura->appendChild($infoTributaria);
 
@@ -132,7 +138,8 @@ class SriService
         $infoFactura = $dom->createElement('infoFactura');
         $infoFactura->appendChild($dom->createElement('fechaEmision', date('d/m/Y')));
         $infoFactura->appendChild($dom->createElement('dirEstablecimiento', substr($dirMatriz, 0, 300)));
-        $infoFactura->appendChild($dom->createElement('obligadoContabilidad', 'NO')); // RIMPE usually NO
+        $obligado = !empty($company['accounting_obligated']) ? 'SI' : 'NO';
+        $infoFactura->appendChild($dom->createElement('obligadoContabilidad', $obligado));
 
         // Customer Info
         $tipoId = '05'; // Cedula default
@@ -145,28 +152,44 @@ class SriService
         $infoFactura->appendChild($dom->createElement('tipoIdentificacionComprador', $tipoId));
         $infoFactura->appendChild($dom->createElement('razonSocialComprador', $customer['name']));
         $infoFactura->appendChild($dom->createElement('identificacionComprador', $customer['document_id']));
-        $infoFactura->appendChild($dom->createElement('totalSinImpuestos', number_format($sale['total'], 2, '.', '')));
+        // Use stored subtotal/tax_amount if available; fallback to recalculate
+        $taxRate = (float)($company['tax_rate'] ?? 0);
+        if (!empty($sale['subtotal']) && !empty($sale['tax_amount'])) {
+            $subtotalFromItems = (float)$sale['subtotal'];
+            $taxAmount         = (float)$sale['tax_amount'];
+        } else {
+            $subtotalFromItems = 0;
+            foreach ($items as $item) {
+                $subtotalFromItems += (float)$item['unit_price'] * (int)$item['quantity'];
+            }
+            $taxAmount = round($subtotalFromItems * ($taxRate / 100), 2);
+        }
+        $importeTotal = round($subtotalFromItems + $taxAmount, 2);
+
+        [$codigoPorcentaje, $tarifa] = $this->mapCodigoIVA($taxRate);
+
+        $infoFactura->appendChild($dom->createElement('totalSinImpuestos', number_format($subtotalFromItems, 2, '.', '')));
         $infoFactura->appendChild($dom->createElement('totalDescuento', '0.00'));
 
         // Total con impuestos
         $totalConImpuestos = $dom->createElement('totalConImpuestos');
         $totalImpuesto = $dom->createElement('totalImpuesto');
         $totalImpuesto->appendChild($dom->createElement('codigo', '2')); // IVA
-        $totalImpuesto->appendChild($dom->createElement('codigoPorcentaje', '0')); // 0%
-        $totalImpuesto->appendChild($dom->createElement('baseImponible', number_format($sale['total'], 2, '.', '')));
-        $totalImpuesto->appendChild($dom->createElement('valor', '0.00')); // 0.00 for 0%
+        $totalImpuesto->appendChild($dom->createElement('codigoPorcentaje', $codigoPorcentaje));
+        $totalImpuesto->appendChild($dom->createElement('baseImponible', number_format($subtotalFromItems, 2, '.', '')));
+        $totalImpuesto->appendChild($dom->createElement('valor', number_format($taxAmount, 2, '.', '')));
         $totalConImpuestos->appendChild($totalImpuesto);
         $infoFactura->appendChild($totalConImpuestos);
 
         $infoFactura->appendChild($dom->createElement('propina', '0.00'));
-        $infoFactura->appendChild($dom->createElement('importeTotal', number_format($sale['total'], 2, '.', '')));
+        $infoFactura->appendChild($dom->createElement('importeTotal', number_format($importeTotal, 2, '.', '')));
         $infoFactura->appendChild($dom->createElement('moneda', 'DOLAR'));
 
         // Pagos
         $pagos = $dom->createElement('pagos');
-        $pago = $dom->createElement('pago');
-        $pago->appendChild($dom->createElement('formaPago', '01')); // 01: Sin utilizacion del sistema financiero (Efectivo) - TODO: Map from sale payment_method
-        $pago->appendChild($dom->createElement('total', number_format($sale['total'], 2, '.', '')));
+        $pago  = $dom->createElement('pago');
+        $pago->appendChild($dom->createElement('formaPago', $this->mapFormaPago($sale['payment_method'] ?? 'efectivo')));
+        $pago->appendChild($dom->createElement('total', number_format($importeTotal, 2, '.', '')));
         $pagos->appendChild($pago);
         $infoFactura->appendChild($pagos);
 
@@ -176,20 +199,24 @@ class SriService
         $detalles = $dom->createElement('detalles');
         foreach ($items as $item) {
             $detalle = $dom->createElement('detalle');
-            $detalle->appendChild($dom->createElement('codigoPrincipal', $item['product_id']));
-            $detalle->appendChild($dom->createElement('descripcion', $item['product_name'] ?? 'Producto ' . $item['product_id']));
+            $desc    = (float)($item['discount'] ?? 0);
+            $itemBase = (float)$item['unit_price'] * (int)$item['quantity'] - $desc;
+
+            $detalle->appendChild($dom->createElement('codigoPrincipal', $item['product_id'] ?? '000'));
+            $detalle->appendChild($dom->createElement('descripcion', substr($item['product_name'] ?? 'Producto', 0, 300)));
             $detalle->appendChild($dom->createElement('cantidad', number_format($item['quantity'], 2, '.', '')));
-            $detalle->appendChild($dom->createElement('precioUnitario', number_format($item['unit_price'], 2, '.', '')));
-            $detalle->appendChild($dom->createElement('descuento', '0.00'));
-            $detalle->appendChild($dom->createElement('precioTotalSinImpuesto', number_format($item['quantity'] * $item['unit_price'], 2, '.', '')));
+            $detalle->appendChild($dom->createElement('precioUnitario', number_format($item['unit_price'], 6, '.', '')));
+            $detalle->appendChild($dom->createElement('descuento', number_format($desc, 2, '.', '')));
+            $detalle->appendChild($dom->createElement('precioTotalSinImpuesto', number_format($itemBase, 2, '.', '')));
+            $itemIva  = round($itemBase * ($taxRate / 100), 2);
 
             $impuestos = $dom->createElement('impuestos');
             $imp = $dom->createElement('impuesto');
             $imp->appendChild($dom->createElement('codigo', '2')); // IVA
-            $imp->appendChild($dom->createElement('codigoPorcentaje', '0')); // 0%
-            $imp->appendChild($dom->createElement('tarifa', '0'));
-            $imp->appendChild($dom->createElement('baseImponible', number_format($item['quantity'] * $item['unit_price'], 2, '.', '')));
-            $imp->appendChild($dom->createElement('valor', '0.00'));
+            $imp->appendChild($dom->createElement('codigoPorcentaje', $codigoPorcentaje));
+            $imp->appendChild($dom->createElement('tarifa', $tarifa));
+            $imp->appendChild($dom->createElement('baseImponible', number_format($itemBase, 2, '.', '')));
+            $imp->appendChild($dom->createElement('valor', number_format($itemIva, 2, '.', '')));
             $impuestos->appendChild($imp);
             $detalle->appendChild($impuestos);
 
@@ -199,14 +226,22 @@ class SriService
 
         // --- InfoAdicional ---
         $infoAdicional = $dom->createElement('infoAdicional');
-        $campoAdicional1 = $dom->createElement('campoAdicional', self::RIMPE_LEYENDA);
-        $campoAdicional1->setAttribute('nombre', 'Regimen');
-        $infoAdicional->appendChild($campoAdicional1);
+
+        // Leyenda RIMPE — solo para contribuyentes RIMPE
+        if ($regime === 'RIMPE_NEGOCIO_POPULAR') {
+            $campoRegimen = $dom->createElement('campoAdicional', 'Contribuyente Negocio Popular - Régimen RIMPE');
+            $campoRegimen->setAttribute('nombre', 'Regimen');
+            $infoAdicional->appendChild($campoRegimen);
+        } elseif ($regime === 'RIMPE_EMPRENDEDOR') {
+            $campoRegimen = $dom->createElement('campoAdicional', 'Emprendedor - Régimen RIMPE');
+            $campoRegimen->setAttribute('nombre', 'Regimen');
+            $infoAdicional->appendChild($campoRegimen);
+        }
 
         if (!empty($customer['email'])) {
-            $campoAdicional2 = $dom->createElement('campoAdicional', $customer['email']);
-            $campoAdicional2->setAttribute('nombre', 'Email');
-            $infoAdicional->appendChild($campoAdicional2);
+            $campoEmail = $dom->createElement('campoAdicional', $customer['email']);
+            $campoEmail->setAttribute('nombre', 'Email');
+            $infoAdicional->appendChild($campoEmail);
         }
 
         $factura->appendChild($infoAdicional);
@@ -275,16 +310,67 @@ class SriService
         return $dom->saveXML();
     }
 
+    /**
+     * Map a tax rate percentage to SRI's codigoPorcentaje and tarifa.
+     * Returns [codigoPorcentaje, tarifa]
+     */
+    private function mapCodigoIVA($taxRate): array
+    {
+        $rate = (float) $taxRate;
+        if ($rate == 0)  return ['0', '0'];   // 0%  — RIMPE Negocio Popular
+        if ($rate == 8)  return ['3', '8'];   // 8%  — Ecuador (período especial)
+        if ($rate == 12) return ['2', '12'];  // 12% — Ecuador (tasa anterior)
+        return ['4', '15'];                   // 15% — Ecuador (tasa vigente 2024+)
+    }
+
+    /**
+     * Map a sale's payment_method to SRI's formaPago code.
+     */
+    private function mapFormaPago($paymentMethod): string
+    {
+        $map = [
+            'efectivo'     => '01',
+            'cash'         => '01',
+            'tarjeta'      => '19',
+            'credito'      => '19',
+            'tarjeta credito' => '19',
+            'debito'       => '16',
+            'tarjeta debito' => '16',
+            'transferencia'=> '20',
+            'cheque'       => '02',
+            'electronico'  => '17',
+        ];
+        return $map[strtolower(trim($paymentMethod))] ?? '01';
+    }
+
+    private function soapOptions(): array
+    {
+        return [
+            'trace'          => 1,
+            'exceptions'     => true,
+            'encoding'       => 'UTF-8',
+            'connection_timeout' => 30,
+            'stream_context' => stream_context_create([
+                'ssl' => [
+                    'verify_peer'       => false,
+                    'verify_peer_name'  => false,
+                    'allow_self_signed' => true,
+                ],
+            ]),
+        ];
+    }
+
     private function enviarRecepcion($xmlSigned)
     {
         $wsdl = ($this->ambiente == 1) ? self::WSDL_RECEPCION_PRUEBAS : self::WSDL_RECEPCION_PRODUCCION;
 
         try {
-            $client = new SoapClient($wsdl);
-            $response = $client->validarComprobante(['xml' => $xmlSigned]);
+            $client   = new SoapClient($wsdl, $this->soapOptions());
+            // El SRI exige el XML firmado en base64
+            $response = $client->validarComprobante(['xml' => base64_encode($xmlSigned)]);
             return $response;
         } catch (SoapFault $e) {
-            throw new Exception("Error connecting to SRI Recepcion: " . $e->getMessage());
+            throw new Exception("Error SRI Recepcion: " . $e->getMessage());
         }
     }
 
@@ -293,11 +379,11 @@ class SriService
         $wsdl = ($this->ambiente == 1) ? self::WSDL_AUTORIZACION_PRUEBAS : self::WSDL_AUTORIZACION_PRODUCCION;
 
         try {
-            $client = new SoapClient($wsdl);
+            $client   = new SoapClient($wsdl, $this->soapOptions());
             $response = $client->autorizacionComprobante(['claveAccesoComprobante' => $claveAcceso]);
             return $response;
         } catch (SoapFault $e) {
-            throw new Exception("Error connecting to SRI Autorizacion: " . $e->getMessage());
+            throw new Exception("Error SRI Autorizacion: " . $e->getMessage());
         }
     }
 }

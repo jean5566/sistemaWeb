@@ -11,6 +11,11 @@ export interface CompanyData {
     currency: string;
     taxRate: number;
     logo?: string;
+    sriRegime?: string;
+    sriEnvironment?: string;
+    sriEstablecimiento?: string;
+    sriPuntoEmision?: string;
+    accountingObligated?: boolean;
 }
 
 interface CompanyContextType {
@@ -31,7 +36,12 @@ const dbToFrontend = (dbData: any): CompanyData => {
         email: dbData.email || '',
         currency: dbData.currency || '$',
         taxRate: Number(dbData.tax_rate) || 0,
-        logo: dbData.logo || ''
+        logo: dbData.logo || '',
+        sriRegime: dbData.sri_regime || 'GENERAL',
+        sriEnvironment: dbData.sri_environment || 'PRUEBAS',
+        sriEstablecimiento: dbData.sri_establecimiento || '001',
+        sriPuntoEmision: dbData.sri_punto_emision || '001',
+        accountingObligated: !!dbData.accounting_obligated,
     };
 };
 
@@ -44,11 +54,23 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         email: '',
         currency: '$',
         taxRate: 0,
-        logo: ''
+        logo: '',
+        sriRegime: 'GENERAL',
+        sriEnvironment: 'PRUEBAS',
+        sriEstablecimiento: '001',
+        sriPuntoEmision: '001',
+        accountingObligated: false,
     });
     const [loading, setLoading] = useState(true);
 
     const fetchSettings = async () => {
+        // We only fetch when there is a token.
+        // If the user isn't logged in, do not hit the API because Settings require a Tenant ID.
+        if (!localStorage.getItem('pos_token')) {
+            setLoading(false);
+            return;
+        }
+
         try {
             const data = await api.get<any>('settings.php');
             if (data) {
@@ -63,7 +85,19 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     useEffect(() => {
-        fetchSettings();
+        // On page load: fetch only if already authenticated (token present).
+        // After a fresh login, auth:login event triggers the fetch instead.
+        const hasToken = !!localStorage.getItem('pos_token');
+        if (hasToken) {
+            fetchSettings();
+        } else {
+            setLoading(false);
+        }
+
+        // Listen for login events to load settings after a fresh sign-in.
+        const handleLogin = () => fetchSettings();
+        window.addEventListener('auth:login', handleLogin);
+        return () => window.removeEventListener('auth:login', handleLogin);
     }, []);
 
     useEffect(() => {
@@ -89,7 +123,12 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         try {
             const dbFieldMap: Record<string, string> = {
                 taxId: 'tax_id',
-                taxRate: 'tax_rate'
+                taxRate: 'tax_rate',
+                sriRegime: 'sri_regime',
+                sriEnvironment: 'sri_environment',
+                sriEstablecimiento: 'sri_establecimiento',
+                sriPuntoEmision: 'sri_punto_emision',
+                accountingObligated: 'accounting_obligated',
             };
 
             // Build full payload and send in a single request

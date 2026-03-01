@@ -1,4 +1,4 @@
-import { Plus, Trash2, ShoppingCart, Banknote, CreditCard, X } from 'lucide-react';
+import { Plus, Trash2, ShoppingCart, Banknote, CreditCard, X, Minus } from 'lucide-react';
 
 import { CartItem } from '../context/CartContext';
 
@@ -12,7 +12,7 @@ interface CartPanelProps {
     onClose?: () => void;
 }
 
-export function CartPanel({ cart, onUpdateQuantity, onRemove, onCheckout, taxRate = 18, currency = '$', onClose }: CartPanelProps) {
+export function CartPanel({ cart, onUpdateQuantity, onRemove, onCheckout, taxRate = 0, currency = '$', onClose }: CartPanelProps) {
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const taxAmount = cartTotal * (taxRate / 100);
     const totalAmount = cartTotal + taxAmount;
@@ -43,39 +43,60 @@ export function CartPanel({ cart, onUpdateQuantity, onRemove, onCheckout, taxRat
                         <p className="font-semibold text-gray-400 uppercase text-[10px] tracking-widest">Sin productos seleccionados</p>
                     </div>
                 ) : (
-                    cart.map(item => (
-                        <div key={item.id} className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-100 dark:bg-gray-700/30 group hover:border-primary/20 transition-all shadow-sm">
-
-                            <div className="flex-1 min-w-0">
-                                <h4 className="font-black text-gray-900 dark:text-white text-sm leading-snug uppercase tracking-tight">{item.name}</h4>
-                                <div className="text-emerald-600 dark:text-emerald-400 font-black text-sm">{currency}{item.price.toFixed(2)}</div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-2 bg-slate-50 dark:bg-gray-700 rounded-xl p-1">
+                    cart.map(item => {
+                        const atMaxStock = item.quantity >= item.stock;
+                        const atMinQuantity = item.quantity <= 1;
+                        return (
+                        <div key={item.id} className={`flex flex-col gap-2 p-4 rounded-2xl border transition-all shadow-sm ${atMaxStock ? 'bg-amber-50/50 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/20' : 'bg-white dark:bg-gray-700/30 border-slate-100 dark:border-gray-700 hover:border-primary/20'}`}>
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-black text-gray-900 dark:text-white text-sm leading-snug uppercase tracking-tight">{item.name}</h4>
+                                    <div className="text-emerald-600 dark:text-emerald-400 font-black text-sm">{currency}{item.price.toFixed(2)}</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-gray-700 rounded-xl p-1">
+                                        <button
+                                            onClick={() => atMinQuantity ? onRemove(item.id) : onUpdateQuantity(item.id, item.quantity - 1)}
+                                            className={`w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg transition-all font-bold ${atMinQuantity ? 'text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-gray-400 hover:bg-white hover:shadow-sm'}`}
+                                            title={atMinQuantity ? 'Quitar del carrito' : 'Reducir cantidad'}
+                                        >
+                                            {atMinQuantity ? <Trash2 size={16} /> : <Minus size={16} />}
+                                        </button>
+                                        <span className="font-black text-sm min-w-[1.5rem] text-center text-gray-700 dark:text-gray-200">{item.quantity}</span>
+                                        <button
+                                            onClick={() => !atMaxStock && onUpdateQuantity(item.id, item.quantity + 1)}
+                                            disabled={atMaxStock}
+                                            className={`w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg transition-all font-bold ${atMaxStock ? 'text-gray-200 dark:text-gray-600 cursor-not-allowed' : 'text-slate-400 hover:bg-white hover:shadow-sm'}`}
+                                            title={atMaxStock ? `Stock máximo: ${item.stock} unidades` : 'Aumentar cantidad'}
+                                        >
+                                            <Plus size={16} />
+                                        </button>
+                                    </div>
                                     <button
-                                        onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-gray-400 transition-all font-bold"
+                                        onClick={() => onRemove(item.id)}
+                                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                                        title="Quitar"
                                     >
-                                        <X size={14} className="rotate-45" />
-                                    </button>
-                                    <span className="font-black text-sm min-w-[1.25rem] text-center text-gray-700">{item.quantity}</span>
-                                    <button
-                                        onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm text-slate-400 transition-all font-bold"
-                                    >
-                                        <Plus size={14} />
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
-                                <button
-                                    onClick={() => onRemove(item.id)}
-                                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
-                                    title="Quitar"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
+                            </div>
+
+                            {/* Stock indicator row */}
+                            <div className="flex items-center justify-between px-1">
+                                <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mr-3">
+                                    <div
+                                        className={`h-full rounded-full transition-all ${atMaxStock ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                                        style={{ width: `${Math.min((item.quantity / item.stock) * 100, 100)}%` }}
+                                    />
+                                </div>
+                                <span className={`text-[9px] font-black uppercase tracking-wider whitespace-nowrap ${atMaxStock ? 'text-amber-500' : 'text-gray-400'}`}>
+                                    {atMaxStock ? 'Máx. alcanzado' : `${item.quantity} / ${item.stock} und`}
+                                </span>
                             </div>
                         </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
