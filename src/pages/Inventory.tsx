@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useInventory } from '../hooks/useInventory';
 import { useCategories } from '../hooks/useCategories';
-import { Plus, Search, Edit, Trash2, X, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, Check, PackagePlus, ArrowUp, ArrowDown, Tag, Loader2, ImagePlus } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, X, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, Check, PackagePlus, ArrowUp, ArrowDown, Tag, Loader2, ImagePlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Product } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +22,10 @@ export default function Inventory() {
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [deleteModalProduct, setDeleteModalProduct] = useState<Product | null>(null);
+
+    // Sorting state
+    const [sortConfig, setSortConfig] = useState<{ key: 'code', direction: 'asc' | 'desc' } | null>(null);
 
     // Stock adjustment state
     const [isStockModalOpen, setIsStockModalOpen] = useState(false);
@@ -32,7 +36,7 @@ export default function Inventory() {
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const itemsPerPage = 20;
 
     // Form state
     const [formData, setFormData] = useState<any>({
@@ -97,10 +101,23 @@ export default function Inventory() {
         return matchesCategory && matchesSearch;
     });
 
+    const sortedProducts = [...filteredProducts].sort((a, b) => {
+        if (!sortConfig) return 0;
+
+        const aCode = a.code || '';
+        const bCode = b.code || '';
+
+        if (sortConfig.direction === 'asc') {
+            return aCode.localeCompare(bCode, undefined, { numeric: true, sensitivity: 'base' });
+        } else {
+            return bCode.localeCompare(aCode, undefined, { numeric: true, sensitivity: 'base' });
+        }
+    });
+
     // Pagination Logic
-    const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+    const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const paginatedProducts = filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+    const paginatedProducts = sortedProducts.slice(startIndex, startIndex + itemsPerPage);
 
     // Reset to page 1 on search/filter
     const handleSearchChange = (val: string) => {
@@ -110,6 +127,15 @@ export default function Inventory() {
 
     const handleCategoryChange = (val: string) => {
         setSelectedCategory(val);
+        setCurrentPage(1);
+    };
+
+    const handleSort = () => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key: 'code', direction });
         setCurrentPage(1);
     };
 
@@ -164,9 +190,10 @@ export default function Inventory() {
         setIsModalOpen(true);
     };
 
-    const handleDelete = async (id: string | number) => {
-        if (window.confirm('¿Eliminar producto?')) {
-            await deleteProduct(id);
+    const executeDelete = async () => {
+        if (deleteModalProduct) {
+            await deleteProduct(deleteModalProduct.id);
+            setDeleteModalProduct(null);
         }
     };
 
@@ -351,7 +378,15 @@ export default function Inventory() {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-gray-50/50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-300 uppercase tracking-widest text-xs font-semibold border-b border-gray-100 dark:border-gray-700">
-                                <th className="px-5 py-3">Código</th>
+                                <th className="px-5 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group" onClick={handleSort}>
+                                    <div className="flex items-center gap-1">
+                                        Código
+                                        <div className="flex flex-col text-gray-400 group-hover:text-primary transition-colors">
+                                            <ChevronUp size={12} className={sortConfig?.direction === 'asc' ? 'text-primary' : 'opacity-50'} />
+                                            <ChevronDown size={12} className={`-mt-1 ${sortConfig?.direction === 'desc' ? 'text-primary' : 'opacity-50'}`} />
+                                        </div>
+                                    </div>
+                                </th>
                                 <th className="px-5 py-3">Descripción del Producto</th>
                                 <th className="px-5 py-3">Categoría</th>
                                 <th className="px-5 py-3">Precio</th>
@@ -412,7 +447,7 @@ export default function Inventory() {
                                                         <Edit size={16} />
                                                     </button>
                                                     <button
-                                                        onClick={() => handleDelete(product.id)}
+                                                        onClick={() => setDeleteModalProduct(product)}
                                                         className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                                                         title="Eliminar"
                                                     >
@@ -462,7 +497,7 @@ export default function Inventory() {
                                                 <Edit size={18} />
                                             </button>
                                             <button
-                                                onClick={() => handleDelete(product.id)}
+                                                onClick={() => setDeleteModalProduct(product)}
                                                 className="p-2.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-all active:scale-95"
                                             >
                                                 <Trash2 size={18} />
@@ -496,7 +531,7 @@ export default function Inventory() {
                 {/* Pagination - Hidden on mobile */}
                 <div className="hidden md:flex p-4 bg-gray-50/50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-widest text-center sm:text-left">
-                        Mostrando <span className="text-slate-900 dark:text-white font-bold">{startIndex + 1}</span> - <span className="text-slate-900 dark:text-white font-bold">{Math.min(startIndex + itemsPerPage, filteredProducts.length)}</span> de <span className="text-slate-900 dark:text-white font-bold">{filteredProducts.length}</span> productos
+                        Mostrando <span className="text-slate-900 dark:text-white font-bold">{Math.min(startIndex + 1, sortedProducts.length)}</span> - <span className="text-slate-900 dark:text-white font-bold">{Math.min(startIndex + itemsPerPage, sortedProducts.length)}</span> de <span className="text-slate-900 dark:text-white font-bold">{sortedProducts.length}</span> productos
                     </div>
 
                     <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-2 sm:pb-0 scrollbar-hide">
@@ -566,6 +601,7 @@ export default function Inventory() {
                                                 value={formData.code}
                                                 onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                                                 className="w-full px-4 py-2.5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all font-bold text-gray-800 dark:text-white text-sm outline-none"
+                                                autoFocus
                                             />
                                         </div>
                                         <div>
@@ -574,6 +610,23 @@ export default function Inventory() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setIsFormCatOpen(!isFormCatOpen)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                                                            e.preventDefault();
+                                                            if (!isFormCatOpen) setIsFormCatOpen(true);
+                                                            const allOptions = [{ id: '', name: 'Seleccionar...' }, ...categories];
+                                                            const currentIndex = Math.max(0, allOptions.findIndex(c => String(c.id) === String(formData.category_id || '')));
+                                                            let nextIndex = currentIndex;
+                                                            if (e.key === 'ArrowDown') {
+                                                                nextIndex = currentIndex < allOptions.length - 1 ? currentIndex + 1 : 0;
+                                                            } else {
+                                                                nextIndex = currentIndex > 0 ? currentIndex - 1 : allOptions.length - 1;
+                                                            }
+                                                            setFormData({ ...formData, category_id: String(allOptions[nextIndex].id) });
+                                                        } else if (e.key === 'Escape') {
+                                                            setIsFormCatOpen(false);
+                                                        }
+                                                    }}
                                                     className="w-full flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all font-bold text-gray-800 dark:text-white text-sm outline-none"
                                                 >
                                                     <span className={!formData.category_id ? 'text-gray-400' : ''}>
@@ -951,6 +1004,37 @@ export default function Inventory() {
                                     </div>
                                 )}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteModalProduct && (
+                <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-sm border border-gray-100 dark:border-gray-700 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
+                        <div className="p-6 text-center">
+                            <div className="w-14 h-14 bg-red-50 dark:bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Trash2 size={26} className="text-red-500" />
+                            </div>
+                            <h3 className="text-lg font-black text-gray-900 dark:text-white mb-1">¿Eliminar producto?</h3>
+                            <p className="text-sm text-gray-400 font-medium max-w-[250px] mx-auto truncate" title={deleteModalProduct.name}>Se eliminará "{deleteModalProduct.name}".</p>
+                        </div>
+                        <div className="flex gap-3 px-6 pb-6">
+                            <button
+                                onClick={() => setDeleteModalProduct(null)}
+                                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-sm active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <X size={16} />
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={executeDelete}
+                                className="flex-1 py-3 bg-red-500 text-white font-black rounded-2xl hover:bg-red-600 transition-all text-sm shadow-lg shadow-red-500/20 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={16} />
+                                Eliminar
+                            </button>
                         </div>
                     </div>
                 </div>

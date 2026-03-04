@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, ShoppingCart } from 'lucide-react';
+import { Search, ShoppingCart, X, Trash2 } from 'lucide-react';
 import { useInventory } from '../hooks/useInventory';
 import { useCart } from '../context/CartContext';
 import { useCustomers } from '../hooks/useCustomers';
@@ -30,9 +30,10 @@ export default function POS() {
     const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string | null>(null);
 
     const [isCartOpen, setIsCartOpen] = useState(false);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
 
     // Filter Logic
-    const filteredProducts = products.filter(product => {
+    const filteredProducts = searchQuery.trim() === '' ? [] : products.filter(product => {
         let matchesCategory = selectedCategory === 'all';
 
         if (!matchesCategory) {
@@ -49,7 +50,9 @@ export default function POS() {
             }
         }
 
-        const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const searchLower = searchQuery.toLowerCase();
+        const matchesSearch = product.name.toLowerCase().includes(searchLower) ||
+            (product.code && product.code.toLowerCase().includes(searchLower));
         return matchesCategory && matchesSearch;
     });
 
@@ -93,11 +96,19 @@ export default function POS() {
                             <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${searchQuery ? 'text-primary' : 'text-gray-400'}`} size={18} />
                             <input
                                 type="text"
-                                placeholder="Buscar por nombre de producto..."
+                                placeholder="Buscar por nombre o código de producto..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-11 pr-10 py-2.5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all shadow-sm placeholder:text-gray-400 font-medium"
                             />
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-full text-gray-400 transition-all"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -133,9 +144,13 @@ export default function POS() {
                             );
                         })}
                         {filteredProducts.length === 0 && (
-                            <div className="flex flex-col items-center justify-center p-20 text-gray-400">
+                            <div className="flex flex-col items-center justify-center p-12 md:p-20 text-gray-400 text-center">
                                 <Search size={48} className="mb-4 opacity-50" />
-                                <p className="text-xl font-medium">No se encontraron productos</p>
+                                <p className="text-lg md:text-xl font-medium">
+                                    {searchQuery.trim() === ''
+                                        ? 'Comienza a escribir para buscar productos'
+                                        : 'No se encontraron productos'}
+                                </p>
                             </div>
                         )}
                     </div>
@@ -169,6 +184,7 @@ export default function POS() {
                     onUpdateQuantity={updateQuantity}
                     onRemove={removeFromCart}
                     onCheckout={handleCheckoutRequest}
+                    onClear={() => setShowClearConfirm(true)}
                     taxRate={taxRate}
                     currency={companyData?.currency || '$'}
                     onClose={() => setIsCartOpen(false)}
@@ -187,6 +203,40 @@ export default function POS() {
                     companyData={companyData}
                     customers={customers}
                 />
+            )}
+
+            {/* Clear Cart Confirmation Modal */}
+            {showClearConfirm && (
+                <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-sm border border-gray-100 dark:border-gray-700 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
+                        <div className="p-6 text-center">
+                            <div className="w-14 h-14 bg-red-50 dark:bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Trash2 size={26} className="text-red-500" />
+                            </div>
+                            <h3 className="text-lg font-black text-gray-900 dark:text-white mb-1">¿Vaciar Carrito?</h3>
+                            <p className="text-sm text-gray-400 font-medium">Se eliminarán todos los productos seleccionados.</p>
+                        </div>
+                        <div className="flex gap-3 px-6 pb-6">
+                            <button
+                                onClick={() => setShowClearConfirm(false)}
+                                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-sm active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <X size={16} />
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    clearCart();
+                                    setShowClearConfirm(false);
+                                }}
+                                className="flex-1 py-3 bg-red-500 text-white font-black rounded-2xl hover:bg-red-600 transition-all text-sm shadow-lg shadow-red-500/20 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={16} />
+                                Vaciar
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );
