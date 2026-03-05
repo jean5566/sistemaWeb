@@ -33,7 +33,7 @@ export default function POS() {
     const [showClearConfirm, setShowClearConfirm] = useState(false);
 
     // Filter Logic
-    const filteredProducts = searchQuery.trim() === '' ? [] : products.filter(product => {
+    const filteredProducts = (searchQuery.trim() === '' && selectedCategory === 'all') ? [] : products.filter(product => {
         let matchesCategory = selectedCategory === 'all';
 
         if (!matchesCategory) {
@@ -50,9 +50,11 @@ export default function POS() {
             }
         }
 
-        const searchLower = searchQuery.toLowerCase();
-        const matchesSearch = product.name.toLowerCase().includes(searchLower) ||
-            (product.code && product.code.toLowerCase().includes(searchLower));
+        const searchLower = searchQuery.trim().toLowerCase();
+        // Si no hay búsqueda pero hay categoría seleccionada, asumimos true para el search
+        const matchesSearch = searchLower === '' ? true : (product.name && product.name.toLowerCase().includes(searchLower)) ||
+            (product.code && typeof product.code === 'string' && product.code.toLowerCase().includes(searchLower));
+
         return matchesCategory && matchesSearch;
     });
 
